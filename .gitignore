@@ -11,6 +11,8 @@ test_uut
 .deps
 .libs
 *.m4
+*.trs
+*.log
 .settings
 autom4te.cache/
 buildutils/ar-lib
@@ -24,6 +26,7 @@ buildutils/missing
 buildutils/modulefiles
 buildutils/modulefiles.vers
 buildutils/pbs_mkdirs
+buildutils/test-driver
 buildutils/self-extract-head-sh
 buildutils/ylwrap
 buildutils/ar-lib
