@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "pbs_ifl.h"
+#include "pbs_nodes.h"
 #include "libpbs.h"
 #include "list_link.h"
 #include "attribute.h"
@@ -36,7 +37,6 @@
 #include "server_limits.h"
 #include "server.h"
 #include "pbs_job.h"
-#include "pbs_nodes.h"
 #include "pbs_error.h"
 #include "log.h"
 #include "dis.h"
@@ -49,7 +49,6 @@
 #include "node_manager.h" /* is_compose */
 #include "../lib/Libattr/attr_node_func.h" /* free_prop_list */
 #include "req_manager.h" /* mgr_set_node_attr */
-#include "../lib/Libutils/u_lock_ctl.h" /* lock_node, unlock_node */
 #include "../lib/Libnet/lib_net.h" /* pbs_getaddrinfo */
 #include "svrfunc.h" /* get_svr_attr_* */
 #include "alps_constants.h"
@@ -99,7 +98,6 @@ job *get_job_from_job_usage_info(job_usage_info *jui, struct pbsnode *pnode);
  *  location depending on which characteristics changed
  * status_nodeattrib() -    add status of each requested (or all) node-pbs_attribute
  *  to the status reply
- * initialize_pbsnode() -   performs node initialization on a new node
  * effective_node_delete() -  effectively deletes a node from the server's node
  *  list by setting the node's "deleted" bit
  * setup_notification() -   sets mechanism for notifying other hosts about a new
@@ -171,7 +169,7 @@ int addr_ok(
     }
 
   if (release_mutex == TRUE)
-    unlock_node(pnode, __func__, "release_mutex = TRUE", LOGLEVEL);
+    pnode->unlock_node(__func__, "release_mutex = TRUE", LOGLEVEL);
 
   return(status);
   }  /* END addr_ok() */
@@ -201,12 +199,31 @@ struct pbsnode *find_node_in_allnodes(
   an->lock();
   pnode = an->find(nodename);
   if (pnode != NULL)
-    lock_node(pnode, __func__, 0, LOGLEVEL);
+    pnode->lock_node(__func__, 0, LOGLEVEL);
 
   an->unlock();
 
   return(pnode);
   } /* END find_node_in_allnodes() */
+
+
+
+bool node_exists(
+    
+  const char *nodename)
+
+  {
+  struct pbsnode *pnode = find_nodebyname(nodename);
+  bool            found = false;
+
+  if (pnode != NULL)
+    {
+    found = true;
+    pnode->unlock_node(__func__, NULL, LOGLEVEL);
+    }
+
+  return(found);
+  } // END node_exists()
 
 
 
@@ -237,7 +254,6 @@ struct pbsnode *find_nodebyname(
   FUNCTION_TIMER
   char           *pslash;
   char           *dash = NULL;
-  char           *tmp;
 
   struct pbsnode *pnode = NULL;
   struct pbsnode *numa  = NULL;
@@ -259,7 +275,7 @@ struct pbsnode *find_nodebyname(
 
   if (pnode != NULL)
     {
-    lock_node(pnode, __func__, NULL, LOGLEVEL);
+    pnode->lock_node(__func__, NULL, LOGLEVEL);
     }
   else
     {
@@ -268,27 +284,22 @@ struct pbsnode *find_nodebyname(
       {
       if (alps_reporter != NULL)
         {
-        lock_node(alps_reporter, __func__, NULL, LOGLEVEL);
+        alps_reporter->lock_node(__func__, NULL, LOGLEVEL);
         
         alps_reporter->alps_subnodes->lock();
         if ((pnode = (struct pbsnode *)alps_reporter->alps_subnodes->find(nodename)) != NULL)
           {
-          lock_node(pnode, __func__, NULL, LOGLEVEL);
+          pnode->lock_node(__func__, NULL, LOGLEVEL);
           }
         alps_reporter->alps_subnodes->unlock();
 
-        unlock_node(alps_reporter, __func__, NULL, LOGLEVEL);
+        alps_reporter->unlock_node(__func__, NULL, LOGLEVEL);
         }
       }
     else
       {
       /* check if it was a numa node */
-      tmp = (char *)nodename;
-      while ((tmp = strchr(tmp, '-')) != NULL)
-        {
-        dash = tmp;
-        tmp++;
-        }
+      dash = strrchr((char *)nodename, '-');
       
       if (dash != NULL)
         {
@@ -297,14 +308,14 @@ struct pbsnode *find_nodebyname(
         
         if ((pnode = allnodes.find(nodename)) != NULL)
           {
-          lock_node(pnode, __func__, NULL, LOGLEVEL);
+          pnode->lock_node(__func__, NULL, LOGLEVEL);
 
           /* get the NUMA node */
           numa = AVL_find(numa_index, pnode->nd_mom_port, pnode->node_boards);
           if (numa != NULL)
-            lock_node(numa, __func__, NULL, LOGLEVEL);
+            numa->lock_node(__func__, NULL, LOGLEVEL);
 
-          unlock_node(pnode, __func__, NULL, LOGLEVEL);
+          pnode->unlock_node(__func__, NULL, LOGLEVEL);
           pnode = numa;
           }
         
@@ -427,7 +438,7 @@ int chk_characteristic(
       if (LOGLEVEL >= 3)
         {
         snprintf(log_buf, LOCAL_LOG_BUF_SIZE, "node %s state modified (%s)\n",
-          pnode->nd_name,
+          pnode->get_name(),
           tmpLine);
         
         log_event(PBSEVENT_ADMIN,PBS_EVENTCLASS_SERVER,"chk_characteristic",log_buf);
@@ -463,7 +474,6 @@ int chk_characteristic(
 
   return(PBSE_NONE);
   }  /* END chk_characteristic() */
-
 
 
 
@@ -514,7 +524,7 @@ int login_encode_jobs(
       if (job_id == NULL)
         job_id = job_mapper.get_name(jui.internal_job_id);
 
-      if (pnode->nd_id != login_id)
+      if (pnode->get_node_id() != login_id)
         {
         if (job_str.length() != 0)
           snprintf(str_buf, sizeof(str_buf), ",%d/%s", jui_index, job_id);
@@ -755,82 +765,6 @@ int status_nodeattrib(
 
 
 
-
-/*
- * initialize_pbsnode - carries out initialization on a new
- * pbs node.  The assumption is that all the parameters are valid.
-*/
-
-int initialize_pbsnode(
-
-  struct pbsnode *pnode,
-  char           *pname, /* node name */
-  u_long         *pul,  /* host byte order array */
-  /* ipaddrs for this node */
-  int             ntype, /* time-shared or cluster */
-  bool            isNUMANode) /* TRUE if this is a NUMA node */
-
-  {
-  struct addrinfo *pAddrInfo;
-
-  if (pnode == NULL)
-    {
-    log_err(PBSE_BAD_PARAMETER, __func__, "NULL pointer was passed for initialization");
-    return(PBSE_BAD_PARAMETER);
-    }
-
-  memset(pnode, 0, sizeof(struct pbsnode));
-
-  pnode->nd_name            = pname;
-  pnode->nd_id              = node_mapper.get_new_id(pnode->nd_name);
-  pnode->nd_mom_port        = PBS_MOM_SERVICE_PORT;
-  pnode->nd_mom_rm_port     = PBS_MANAGER_SERVICE_PORT;
-  pnode->nd_addrs           = pul;       /* list of host byte order */
-  pnode->nd_ntype           = ntype;
-  pnode->nd_needed          = 0;
-  pnode->nd_order           = 0;
-  pnode->nd_prop            = NULL;
-  pnode->nd_status          = NULL;
-  pnode->nd_note            = NULL;
-  pnode->nd_state           = INUSE_DOWN;
-  pnode->nd_first           = init_prop(pnode->nd_name);
-  pnode->nd_last            = pnode->nd_first;
-  pnode->nd_f_st            = init_prop(pnode->nd_name);
-  pnode->nd_l_st            = pnode->nd_f_st;
-  pnode->nd_hierarchy_level = -1; /* maximum unsigned short */
-  pnode->nd_nprops          = 0;
-  pnode->nd_nstatus         = 0;
-  pnode->nd_warnbad         = 0;
-  pnode->nd_ngpus           = 0;
-  pnode->nd_gpustatus       = NULL;
-  pnode->nd_ngpustatus      = 0;
-  pnode->nd_ms_jobs         = new std::vector<std::string>();
-  pnode->nd_acl             = NULL;
-  pnode->nd_requestid       = new std::string();
-
-  if (!isNUMANode) //NUMA nodes don't have their own address and their name is not in DNS.
-    {
-    if (pbs_getaddrinfo(pname,NULL,&pAddrInfo))
-      {
-      return (PBSE_SYSTEM);
-      }
-    memcpy(&pnode->nd_sock_addr,pAddrInfo->ai_addr,sizeof(struct sockaddr_in));
-    }
-
-  pnode->nd_mutex = (pthread_mutex_t *)calloc(1, sizeof(pthread_mutex_t));
-  if (pnode->nd_mutex == NULL)
-    {
-    log_err(ENOMEM, __func__, "Could not allocate memory for the node's mutex");
-
-    return(ENOMEM);
-    }
-  pthread_mutex_init(pnode->nd_mutex,NULL);
-
-  return(PBSE_NONE);
-  }  /* END initialize_pbsnode() */
-
-
-
 void effective_node_delete(
 
   struct pbsnode **ppnode)
@@ -851,14 +785,15 @@ void effective_node_delete(
     log_err(PBSE_BAD_PARAMETER, __func__, "NULL node pointer delete call");
     return;
     }
-  if(pnode->nd_name == NULL)
+
+  if (pnode->get_name() == NULL)
     {
     log_err(PBSE_BAD_PARAMETER, __func__, "NULL node pointer to name delete call");
     return;
     }
 
   remove_node(&allnodes,pnode);
-  unlock_node(pnode, __func__, NULL, LOGLEVEL);
+  pnode->unlock_node(__func__, NULL, LOGLEVEL);
   free(pnode->nd_mutex);
 
   pnode->nd_last->next = NULL;      /* just in case */
@@ -886,7 +821,7 @@ void effective_node_delete(
       }
     }
 
-  free(pnode->nd_name);
+  //free(pnode->nd_name);
 
   if(pnode->alps_subnodes != NULL) delete pnode->alps_subnodes;
 
@@ -1161,18 +1096,18 @@ void write_compute_node_properties(
         (alps_node->nd_first->next->next != NULL))
       {
       std::stringstream buf;
-      buf << alps_node->nd_name;
+      buf << alps_node->get_name();
 
       for (struct prop *pp = alps_node->nd_first; pp != NULL; pp = pp->next)
         {
-        if (strcmp(pp->name, alps_node->nd_name))
+        if (strcmp(pp->name, alps_node->get_name()))
           buf << " " << pp->name;
         }
 
       fprintf(nin, "%s\n", buf.str().c_str());
       }
       
-    unlock_node(alps_node, __func__, "loop", LOGLEVEL);
+    alps_node->unlock_node(__func__, "loop", LOGLEVEL);
     }
    
   if (iter != NULL)
@@ -1241,7 +1176,7 @@ int update_nodes_file(
   while ((np = next_host(&allnodes,&iter,held)) != NULL)
     {
     /* ... write its name, and if time-shared, append :ts */
-    fprintf(nin, "%s", np->nd_name); /* write name */
+    fprintf(nin, "%s", np->get_name()); /* write name */
 
     /* if number of subnodes is gt 1, write that; if only one,   */
     /* don't write to maintain compatability with old style file */
@@ -1329,7 +1264,7 @@ int update_nodes_file(
       fclose(nin);
     
       if (held != np)
-        unlock_node(np, __func__, "error", LOGLEVEL);
+        np->unlock_node(__func__, "error", LOGLEVEL);
 
       delete iter;
 
@@ -1337,7 +1272,7 @@ int update_nodes_file(
       }
     
     if (held != np)
-      unlock_node(np, __func__, "loop", LOGLEVEL);
+      np->unlock_node(__func__, "loop", LOGLEVEL);
     } /* for each node */
       
   if (iter != NULL)
@@ -1417,14 +1352,14 @@ void recompute_ntype_cnts(void)
 
 struct prop *init_prop(
 
-  char *pname) /* I */
+  const char *pname) /* I */
 
   {
   struct prop *pp;
 
   if ((pp = (struct prop *)calloc(1, sizeof(struct prop))) != NULL)
     {
-    pp->name    = pname;
+    pp->name    = strdup(pname);
     pp->mark    = 0;
     pp->next    = 0;
     }
@@ -1587,7 +1522,7 @@ int copy_properties(
     }
 
   /* now add in name as last prop */
-  pdest  = init_prop(dest->nd_name);
+  pdest  = init_prop(dest->get_name());
   *plink = pdest;
   dest->nd_last = pdest;
 
@@ -1688,12 +1623,9 @@ static int setup_node_boards(
 
   for (i = 0; i < pnode->num_node_boards; i++)
     {
-    pn = (struct pbsnode *)calloc(1, sizeof(struct pbsnode));
-
     /* each numa node just has a number for a name */
     snprintf(pname,sizeof(pname),"%s-%d",
-      pnode->nd_name,
-      i);
+      pnode->get_name(), i);
 
     allocd_name = strdup(pname);
     if (allocd_name == NULL)
@@ -1704,9 +1636,12 @@ static int setup_node_boards(
       return(PBSE_SYSTEM);
       }
 
-    if ((rc = initialize_pbsnode(pn, allocd_name, pul, NTYPE_CLUSTER, TRUE)) != PBSE_NONE)
+    pn = new pbsnode(allocd_name, pul, true);
+
+    if (strlen(pn->get_error()) > 0)
       {
-      free(pn);
+      delete pn;
+      free(allocd_name);
       return(rc);
       }
 
@@ -1755,7 +1690,7 @@ static int setup_node_boards(
     snprintf(log_buf,sizeof(log_buf),
       "Successfully created %d numa nodes for node %s\n",
       pnode->num_node_boards,
-      pnode->nd_name);
+      pnode->get_name());
 
     log_event(PBSEVENT_SYSTEM, PBS_EVENTCLASS_NODE, __func__, log_buf);
     }
@@ -1920,27 +1855,21 @@ int create_pbs_node(
 
   if ((pnode = find_nodebyname(pname)) != NULL)
     {
-    unlock_node(pnode, __func__, NULL, LOGLEVEL);
+    pnode->unlock_node(__func__, NULL, LOGLEVEL);
 
     free(pname);
     free(pul);
 
     return(PBSE_NODEEXIST);
     }
-    
-  if ((pnode = (struct pbsnode *)calloc(1, sizeof(struct pbsnode))) == NULL)
-    {
-    free(pul);
-    free(pname);
-    
-    return(PBSE_SYSTEM);
-    }
 
-  if ((rc = initialize_pbsnode(pnode, pname, pul, ntype, FALSE)) != PBSE_NONE)
+  pnode = new pbsnode(pname, pul, false);
+    
+  if (strlen(pnode->get_error()) > 0)
     {
     free(pul);
     free(pname);
-    free(pnode);
+    delete pnode;
 
     return(rc);
     }
@@ -1981,7 +1910,7 @@ int create_pbs_node(
       {
       snprintf(log_buf, LOCAL_LOG_BUF_SIZE,
           "node '%s' allows trust for ipaddr %ld.%ld.%ld.%ld\n",
-        pnode->nd_name,
+        pnode->get_name(),
         (pul[i] & 0xff000000) >> 24,
         (pul[i] & 0x00ff0000) >> 16,
         (pul[i] & 0x0000ff00) >> 8,
@@ -2438,7 +2367,7 @@ int setup_nodes(void)
         np->nd_is_alps_reporter = TRUE;
         alps_reporter = np;
         np->alps_subnodes = new all_nodes();
-        unlock_node(np, __func__, NULL, LOGLEVEL);
+        np->unlock_node(__func__, NULL, LOGLEVEL);
         }
       else if (is_alps_starter == true)
         {
@@ -2446,7 +2375,7 @@ int setup_nodes(void)
         np->nd_is_alps_login = TRUE;
         add_to_login_holder(np);
         /* NYI: add to login node list */
-        unlock_node(np, __func__, NULL, LOGLEVEL);
+        np->unlock_node(__func__, NULL, LOGLEVEL);
         }
       else if (is_alps_compute == true)
         {
@@ -2454,7 +2383,7 @@ int setup_nodes(void)
         // add features
         int bad;
         mgr_set_node_attr(np, node_attr_def, ND_ATR_LAST, pal, perm, &bad, (void *)np, ATR_ACTION_ALTER);
-        unlock_node(np, __func__, NULL, LOGLEVEL);
+        np->unlock_node(__func__, NULL, LOGLEVEL);
         }
       }
 
@@ -2497,19 +2426,19 @@ int setup_nodes(void)
 
       while ((np = next_host(&allnodes,&iter,NULL)) != NULL)
         {
-        if (strcmp(np->nd_name, line) == 0)
+        if (strcmp(np->get_name(), line) == 0)
           {
           np->nd_state = num;
 
           /* exclusive bits are calculated later in set_old_nodes() */
           np->nd_state &= ~INUSE_JOB;
 
-          unlock_node(np, __func__, "match", LOGLEVEL);
+          np->unlock_node(__func__, "match", LOGLEVEL);
 
           break;
           }
 
-        unlock_node(np, __func__, "no match", LOGLEVEL);
+        np->unlock_node(__func__, "no match", LOGLEVEL);
         }
 
       if (iter != NULL)
@@ -2531,16 +2460,16 @@ int setup_nodes(void)
 
       while ((np = next_host(&allnodes,&iter,NULL)) != NULL)
         {
-        if (strcmp(np->nd_name, line) == 0)
+        if (strcmp(np->get_name(), line) == 0)
           {
           np->nd_power_state = num;
 
-          unlock_node(np, __func__, "match", LOGLEVEL);
+          np->unlock_node(__func__, "match", LOGLEVEL);
 
           break;
           }
 
-        unlock_node(np, __func__, "no match", LOGLEVEL);
+        np->unlock_node(__func__, "no match", LOGLEVEL);
         }
 
       if (iter != NULL)
@@ -2567,11 +2496,11 @@ int setup_nodes(void)
         if (np->nd_note == NULL)
           {
           snprintf(log_buf, sizeof(log_buf),
-            "couldn't allocate space for note (node = %s)", np->nd_name);          
+            "couldn't allocate space for note (node = %s)", np->get_name());          
           log_record(PBSEVENT_SCHED, PBS_EVENTCLASS_REQUEST, __func__, log_buf);
           }
         
-        unlock_node(np, __func__, "init - no note", LOGLEVEL);
+        np->unlock_node(__func__, "init - no note", LOGLEVEL);
         }
       }
 
@@ -3136,7 +3065,6 @@ int create_partial_pbs_node(
   int            perms)
 
   {
-  int              ntype; /* node type; time-shared, not */
   int              rc;
   int              bad = 0;
   svrattrl        *plist = NULL;
@@ -3157,7 +3085,6 @@ int create_partial_pbs_node(
     return(PBSE_SYSTEM);
     }
 
-  ntype = NTYPE_CLUSTER;
   pul = (u_long *)calloc(2, sizeof(u_long));
   if (!pul)
     {
@@ -3169,13 +3096,15 @@ int create_partial_pbs_node(
   *pul = addr;
   pname = strdup(nodename);
 
-  if ((rc = initialize_pbsnode(pnode, pname, pul, ntype, FALSE)) != PBSE_NONE)
+  pnode = new pbsnode(pname, pul, false);
+
+  if (strlen(pnode->get_error()) > 0)
     {
     free(pul);
     free(pname);
-    free(pnode);
+    delete pnode;
 
-    return(rc);
+    return(PBSE_SYSTEM);
     }
 
   /* create and initialize the first subnode to go with the parent node */
@@ -3194,7 +3123,7 @@ int create_partial_pbs_node(
 
   if (rc != 0)
     {
-    lock_node(pnode, __func__, NULL, LOGLEVEL);
+    pnode->lock_node(__func__, NULL, LOGLEVEL);
     effective_node_delete(&pnode);
 
     return(rc);
@@ -3243,9 +3172,9 @@ static struct pbsnode *get_my_next_node_board(
   iter->numa_index++;
   numa = AVL_find(iter->numa_index, pnode->nd_mom_port, pnode->node_boards);
   
-  unlock_node(pnode, __func__, "pnode", LOGLEVEL);
+  pnode->unlock_node(__func__, "pnode", LOGLEVEL);
   if (numa != NULL)
-    lock_node(numa, __func__, "numa", LOGLEVEL);
+    numa->lock_node(__func__, "numa", LOGLEVEL);
 
   return(numa);
   } /* END get_my_next_node_board() */
@@ -3261,7 +3190,7 @@ static struct pbsnode *get_my_next_alps_node(
   {
   struct pbsnode *alps_node = next_host(pnode->alps_subnodes, &(iter->alps_index), NULL);
 
-  unlock_node(pnode, __func__, NULL, LOGLEVEL);
+  pnode->unlock_node(__func__, NULL, LOGLEVEL);
 
   return(alps_node);
   } /* END get_my_next_alps_node() */
@@ -3303,7 +3232,7 @@ struct pbsnode *next_node(
     /* the first call to next_node */
     next = iter->node_index->get_next_item();
     if (next != NULL)
-      lock_node(next, __func__, "next != NULL", LOGLEVEL);
+      next->lock_node(__func__, "next != NULL", LOGLEVEL);
 
     an->unlock();
 
@@ -3329,13 +3258,13 @@ struct pbsnode *next_node(
         (iter->alps_index !=  NULL))
       {
       tmp = current->parent;
-      unlock_node(current, __func__, "current == NULL && numa_index > 0", LOGLEVEL);
+      current->unlock_node(__func__, "current == NULL && numa_index > 0", LOGLEVEL);
       if (tmp == NULL) /* TODO: think about this check and apropriate return*/
         {
         log_err(-1, __func__, "current->parent == NULL");
         return(NULL);
         }
-      lock_node(tmp, __func__, "tmp && numa_index > 0", LOGLEVEL);
+      tmp->lock_node(__func__, "tmp && numa_index > 0", LOGLEVEL);
       current = tmp;
       }
 
@@ -3355,7 +3284,7 @@ struct pbsnode *next_node(
           
           if (next != NULL)
             {
-            lock_node(next, __func__, NULL, LOGLEVEL);
+            next->lock_node(__func__, NULL, LOGLEVEL);
             an->unlock();
             
             if (next->nd_is_alps_reporter)
@@ -3369,7 +3298,7 @@ struct pbsnode *next_node(
         }
       else
         {
-        unlock_node(current, __func__, NULL, LOGLEVEL);
+        current->unlock_node(__func__, NULL, LOGLEVEL);
         iter->alps_index = NULL;
         
         an->lock();
@@ -3377,7 +3306,7 @@ struct pbsnode *next_node(
         
         if (next != NULL)
           {
-          lock_node(next, __func__, NULL, LOGLEVEL);
+          next->lock_node(__func__, NULL, LOGLEVEL);
           an->unlock();
           
           if (next->nd_is_alps_reporter)
@@ -3395,7 +3324,7 @@ struct pbsnode *next_node(
       iter->numa_index = -1;
 
       /* go to the next node in all nodes */
-      unlock_node(current, __func__, "next == NULL && numa_index+1", LOGLEVEL);
+      current->unlock_node(__func__, "next == NULL && numa_index+1", LOGLEVEL);
       an->lock();
 
       next = iter->node_index->get_next_item();
@@ -3403,7 +3332,7 @@ struct pbsnode *next_node(
 
       if (next != NULL)
         {
-        lock_node(next, __func__, "next != NULL && numa_index+1", LOGLEVEL);
+        next->lock_node(__func__, "next != NULL && numa_index+1", LOGLEVEL);
         an->unlock();
 
         if (next->num_node_boards > 0)
@@ -3455,7 +3384,8 @@ int insert_node(
     log_err(rc, __func__, "NULL input node pointer");
     return(rc);
     }
-  if(pnode->nd_name == NULL)
+
+  if (pnode->get_name() == NULL)
     {
     rc = PBSE_BAD_PARAMETER;
     log_err(rc, __func__, "NULL input node name pointer");
@@ -3464,7 +3394,7 @@ int insert_node(
 
   an->lock();
 
-  if(!an->insert(pnode,pnode->nd_name))
+  if (!an->insert(pnode, pnode->get_name()))
     {
     rc = ENOMEM;
     log_err(rc, __func__, "No memory to resize the array...SYSTEM FAILURE");
@@ -3509,7 +3439,8 @@ int remove_node(
     log_err(rc, __func__, "NULL input node pointer");
     return(rc);
     }
-  if (pnode->nd_name == NULL)
+
+  if (pnode->get_name() == NULL)
     {
     rc = PBSE_BAD_PARAMETER;
     log_err(rc, __func__, "NULL input node name pointer");
@@ -3518,13 +3449,13 @@ int remove_node(
 
   if (an->trylock())
     {
-    unlock_node(pnode, __func__, NULL, LOGLEVEL);
+    pnode->unlock_node(__func__, NULL, LOGLEVEL);
     an->lock();
-    lock_node(pnode, __func__, NULL, LOGLEVEL);
+    pnode->lock_node(__func__, NULL, LOGLEVEL);
     }
 
   //Don't care if it was in there or not.
-  an->remove(pnode->nd_name);
+  an->remove(pnode->get_name());
   rc = PBSE_NONE;
 
   an->unlock();
@@ -3560,8 +3491,8 @@ struct pbsnode *next_host(
     {
     if (held != NULL)
       {
-      id = held->nd_id;
-      unlock_node(held, __func__, NULL, LOGLEVEL);
+      id = held->get_node_id();
+      held->unlock_node(__func__, NULL, LOGLEVEL);
       }
     an->lock();
     }
@@ -3575,7 +3506,7 @@ struct pbsnode *next_host(
       ((pnode != held) && 
        (id == -1)))
     {
-    lock_node(pnode, __func__, NULL, LOGLEVEL);
+    pnode->lock_node(__func__, NULL, LOGLEVEL);
     }
 
   an->unlock();
@@ -3611,9 +3542,9 @@ void *send_hierarchy_threadtask(
   if (pnode != NULL)
     {
     char nodename[MAXLINE];
-    snprintf(nodename, sizeof(nodename), "%s", pnode->nd_name);
+    snprintf(nodename, sizeof(nodename), "%s", pnode->get_name());
     port = pnode->nd_mom_rm_port;
-    unlock_node(pnode, __func__, NULL, LOGLEVEL);
+    pnode->unlock_node(__func__, NULL, LOGLEVEL);
 
     if (send_hierarchy(nodename, port) != PBSE_NONE)
       {

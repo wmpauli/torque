@@ -119,7 +119,6 @@
 #include "dis.h"
 #include "array.h"
 #include "req_stat.h"
-#include "../lib/Libutils/u_lock_ctl.h" /* lock_node, unlock_node */
 #include "../lib/Libnet/lib_net.h" /* globalset_del_sock */
 #include "svr_func.h" /* get_svr_attr_* */
 #include "req_getcred.h" /* req_altauthenuer */ 
@@ -310,21 +309,15 @@ bool request_passes_acl_check(
     {
     /* acl enabled, check it; always allow myself and nodes */
     struct array_strings *pas = NULL;
-    struct pbsnode       *isanode;
 
     get_svr_attr_arst(SRV_ATR_acl_hosts, &pas);
 
-    isanode = find_nodebyname(request->rq_host);
-
-    if ((isanode == NULL) &&
+    if ((node_exists(request->rq_host) == false) &&
         (strcmp(server_host, request->rq_host) != 0) &&
         (acl_check_my_array_string(pas, request->rq_host, ACL_Host) == 0))
       {
       return(false);
       }
-
-    if (isanode != NULL)
-      unlock_node(isanode, __func__, NULL, LOGLEVEL);
     }
   
   return(true);

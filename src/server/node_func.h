@@ -29,15 +29,11 @@ void save_characteristic(struct pbsnode *pnode, struct node_check_info *nci);
 
 int chk_characteristic(struct pbsnode *pnode, struct node_check_info *nci, int *pneed_todo);
 
-int status_nodeattrib(struct svrattrl *pal, struct attribute_def *padef, struct pbsnode *pnode, int limit, int priv, tlist_head *phead, int *bad);
-
 void effective_node_delete(struct pbsnode **pnode);
 
 int update_nodes_file(struct pbsnode *held);
 
 void recompute_ntype_cnts(void);
-
-struct prop *init_prop(char *pname);
 
 int create_a_gpusubnode(struct pbsnode *pnode);
 

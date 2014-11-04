@@ -85,6 +85,8 @@
 
 #include <pthread.h>
 #include <netinet/in.h> /* sockaddr_in */
+#include <vector>
+#include <string>
 #include <set>
 
 #include "execution_slot_tracker.hpp"
@@ -93,10 +95,9 @@
 
 /* NOTE:  requires server_limits.h */
 
-#include <vector>
-#include <string>
 #include "container.hpp"
 #include "job_usage_info.hpp"
+#include "attribute.h"
 
 #ifdef NUMA_SUPPORT
 /* NOTE: cpuset support needs hwloc */
@@ -280,11 +281,18 @@ typedef struct received_node
   int                      hellos_sent;
   } received_node;
 
+typedef struct job job;
 
-struct pbsnode
+
+class pbsnode
   {
+private:
+  // populated if there is an error on node creation
+  std::string nd_error; 
   char                         *nd_name;             /* node's host name */
   int                           nd_id;               /* node's id */
+
+public:
 
   struct prop                  *nd_first;            /* first and last property */
   struct prop                  *nd_last;
@@ -353,6 +361,23 @@ struct pbsnode
   std::string                  *nd_requestid;
 
   pthread_mutex_t              *nd_mutex;            /* semaphore for accessing this node's data */
+
+  const char *get_name() const;
+  const char *get_error() const;
+  int         get_node_id() const;
+  int         encode_jobs(tlist_head *ph, const char *aname) const;
+  int         login_encode_jobs(tlist_head     *phead);
+  int         lock_node(const char *caller, const char *msg, int level);
+  int         unlock_node(const char *caller, const char *msg, int level);
+  job        *get_job_from_job_usage_info(job_usage_info *jui);
+
+  int         status_nodeattrib(svrattrl *pal, attribute_def *padef, int limit, int priv, tlist_head *phead,
+                                int *bad);
+  void        set_name(char *);
+
+  pbsnode(char *pname, u_long *pul, bool isNUMANode);
+  pbsnode();
+  pbsnode(const pbsnode &other);
   };
 
 typedef container::item_container<struct pbsnode *>                all_nodes;
@@ -590,6 +615,7 @@ struct pbsnode  *tfind_addr(const u_long key, uint16_t port, char *job_momname);
 struct pbsnode  *find_nodebyname(const char *);
 struct pbsnode  *find_nodebyid(int);
 struct pbsnode  *find_node_in_allnodes(all_nodes *an, char *nodename);
+bool             node_exists(const char *name);
 int              create_partial_pbs_node(char *, unsigned long, int);
 int              add_execution_slot(struct pbsnode *pnode);
 extern void      delete_a_subnode(struct pbsnode *pnode);
@@ -605,16 +631,17 @@ struct pbsnode  *find_nodebynameandaltname(char *, char *);
 void             free_prop_list(struct prop*);
 void             free_prop_attr(pbs_attribute*);
 void             recompute_ntype_cnts();
-int              create_pbs_node(char *, svrattrl *, int, int *);
 int              mgr_set_node_attr(struct pbsnode *, attribute_def *, int, svrattrl *, int, int *, void *, int);
 void            *send_hierarchy_file(void *);
 
 node_iterator   *get_node_iterator();
 void             reinitialize_node_iterator(node_iterator *);
 
+int              create_pbs_node(char *, svrattrl *, int, int *);
+
 #endif /* BATCH_REQUEST_H */
 
-struct prop     *init_prop(char *pname);
+struct prop     *init_prop(const char *pname);
 int              initialize_pbsnode(struct pbsnode *, char *pname, u_long *pul, int ntype, bool isNUMANode);
 int              hasprop(struct pbsnode *pnode, struct prop *props);
 void             update_node_state(struct pbsnode *np, int newstate);

@@ -126,7 +126,6 @@
 #include "threadpool.h"
 #include "job_func.h" /* svr_job_purge */
 #include "pbs_nodes.h"
-#include "../lib/Libutils/u_lock_ctl.h" /* lock_node, unlock_node */
 #include "ji_mutex.h"
 #include "user_info.h"
 #include "work_task.h"
@@ -2000,7 +1999,7 @@ int set_interactive_job_roaming_policy(
           pjob->ji_wattr[JOB_ATR_login_prop].at_flags |= ATR_VFLAG_SET;
           pjob->ji_wattr[JOB_ATR_login_prop].at_val.at_str = submit_node_id;
           
-          unlock_node(pnode, __func__, NULL, LOGLEVEL);
+          pnode->unlock_node(__func__, NULL, LOGLEVEL);
           }
         else
           {

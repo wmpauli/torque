@@ -158,7 +158,6 @@ int site_check_user_map(
 
   char  *dptr;
 
-  struct pbsnode *tmp;
   char   log_buf[256];
 
 #ifdef MUNGE_AUTH
@@ -240,11 +239,9 @@ int site_check_user_map(
   if ((HostAllowed == 0) &&
       (server.sv_attr[SRV_ATR_AllowNodeSubmit].at_flags & ATR_VFLAG_SET) &&
       (server.sv_attr[SRV_ATR_AllowNodeSubmit].at_val.at_long == 1) &&
-      ((tmp = find_nodebyname(orighost)) != NULL))
+      (node_exists(orighost) == true))
     {
     /* job submitted from compute host, access allowed */
-    unlock_node(tmp, "site_check_user_map", NULL, logging);
-
     if (dptr != NULL)
       *dptr = '.';
 

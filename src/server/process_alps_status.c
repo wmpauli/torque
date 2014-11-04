@@ -131,7 +131,7 @@ struct pbsnode *find_alpsnode_by_name(
   parent->alps_subnodes->unlock();
 
   if (node != NULL)
-    lock_node(node, __func__, NULL, LOGLEVEL);
+    node->lock_node(__func__, NULL, LOGLEVEL);
 
   return(node);
   } /* END find_alpsnode_by_name() */
@@ -151,14 +151,16 @@ struct pbsnode *create_alps_subnode(
   const char     *node_id)
 
   {
-  struct pbsnode *subnode = (struct pbsnode *)calloc(1, sizeof(struct pbsnode));
+  struct pbsnode *subnode;
   svrattrl       *plist = NULL;
   int             bad;
   int             rc = PBSE_NONE;
 
-  if (initialize_pbsnode(subnode, strdup(node_id), NULL, NTYPE_CLUSTER, FALSE) != PBSE_NONE)
+  subnode = new pbsnode(strdup(node_id), NULL, false);
+
+  if (strlen(subnode->get_error()) > 0)
     {
-    free(subnode);
+    delete subnode;
     log_err(ENOMEM, __func__, "");
     return(NULL);
     }
@@ -194,7 +196,7 @@ struct pbsnode *create_alps_subnode(
   /* add any properties to the subnodes */
   copy_properties(subnode, parent);
 
-  lock_node(subnode, __func__, NULL, LOGLEVEL);
+  subnode->lock_node(__func__, NULL, LOGLEVEL);
     
   insert_node(parent->alps_subnodes, subnode);
   
@@ -239,7 +241,7 @@ void *check_if_orphaned(
         "Found orphan ALPS reservation ID %s for job %s; asking %s to remove it",
         rsv_id,
         job_id,
-        pnode->nd_name);
+        pnode->get_name());
       log_record(PBSEVENT_DEBUG, PBS_EVENTCLASS_SERVER, __func__, log_buf);
 
       while ((handle < 0) &&
@@ -250,7 +252,7 @@ void *check_if_orphaned(
         }
 
       /* unlock before the network transaction */
-      unlock_node(pnode, __func__, NULL, LOGLEVEL);
+      pnode->unlock_node(__func__, NULL, LOGLEVEL);
       
       if (handle >= 0)
         issue_Drequest(handle, preq, true);
@@ -278,10 +280,10 @@ struct pbsnode *determine_node_from_str(
   const char     *node_id = str + strlen("node=");
 
   if ((current == NULL) || 
-      (strcmp(node_id, current->nd_name)))
+      (strcmp(node_id, current->get_name())))
     {
     if (current != NULL)
-      unlock_node(current, __func__, NULL, LOGLEVEL);
+      current->unlock_node(__func__, NULL, LOGLEVEL);
 
     if ((next = find_alpsnode_by_name(parent, node_id)) == NULL)
       {
@@ -499,7 +501,7 @@ int record_reservation(
     const job_usage_info &jui = pnode->nd_job_usages[i];
     int                   internal_job_id = jui.internal_job_id;
 
-    unlock_node(pnode, __func__, NULL, LOGLEVEL);
+    pnode->unlock_node(__func__, NULL, LOGLEVEL);
 
     if ((pjob = svr_find_job_by_id(internal_job_id)) != NULL)
       {
@@ -524,11 +526,11 @@ int record_reservation(
       found_job = true;
 
       job_mutex.unlock(); 
-      lock_node(pnode, __func__, NULL, LOGLEVEL);
+      pnode->lock_node(__func__, NULL, LOGLEVEL);
       break;
       }
     else
-      lock_node(pnode, __func__, NULL, LOGLEVEL);
+      pnode->lock_node(__func__, NULL, LOGLEVEL);
     }
 
   if (found_job == false)
@@ -638,12 +640,12 @@ int process_alps_status(
 
         /* sub-functions will attempt to lock a job, so we must unlock the
          * reporter node */
-        unlock_node(parent, __func__, NULL, LOGLEVEL);
+        parent->unlock_node(__func__, NULL, LOGLEVEL);
 
         process_reservation_id(current, str);
 
-        current_node_id = strdup(current->nd_name);
-        unlock_node(current, __func__, NULL, LOGLEVEL);
+        current_node_id = strdup(current->get_name());
+        current->unlock_node(__func__, NULL, LOGLEVEL);
 
         /* re-lock the parent */
         if ((parent = find_nodebyname(nd_name)) == NULL)
@@ -658,7 +660,7 @@ int process_alps_status(
         if ((current = find_node_in_allnodes(parent->alps_subnodes, current_node_id)) == NULL)
           {
           /* current node disappeared, this shouldn't be possible either */
-          unlock_node(parent, __func__, NULL, LOGLEVEL);
+          parent->unlock_node(__func__, NULL, LOGLEVEL);
           snprintf(log_buf, sizeof(log_buf), "Current node '%s' disappeared while recording a reservation",
             current_node_id);
           log_err(PBSE_UNKNODE, __func__, log_buf);
@@ -740,10 +742,10 @@ int process_alps_status(
     snprintf(node_index_buf, sizeof(node_index_buf), "node_index=%d", node_index++);
     decode_arst(&temp, NULL, NULL, node_index_buf, 0);
     save_node_status(current, &temp);
-    unlock_node(current, __func__, NULL, LOGLEVEL);
+    current->unlock_node(__func__, NULL, LOGLEVEL);
     }
 
-  unlock_node(parent, __func__, NULL, LOGLEVEL);
+  current->unlock_node(__func__, NULL, LOGLEVEL);
 
   return(PBSE_NONE);
   } /* END process_alps_status() */

@@ -133,7 +133,6 @@
 #include "../lib/Libattr/attr_node_func.h" /* free_prop_list */
 #include "node_func.h" /* init_prop, find_nodebyname, reinitialize_node_iterator, recompute_ntype_cnts, effective_node_delete, create_pbs_node */
 #include "node_manager.h" /* setup_notification */
-#include "../lib/Libutils/u_lock_ctl.h" /* unlock_node */
 #include "queue_func.h" /* find_queuebyname, que_alloc, que_free */
 #include "queue_recov.h" /* que_save */
 #include "mutex_mgr.hpp"
@@ -348,10 +347,10 @@ int set_queue_type(
 
 static void mgr_log_attr(
 
-  char *msg,
+  char            *msg,
   struct svrattrl *plist,
-  int logclass,           /* see log.h */
-  char *objname)          /* object being modified */
+  int              logclass,           /* see log.h */
+  const char      *objname)          /* object being modified */
 
   {
   const char *pstr;
@@ -841,11 +840,11 @@ int mgr_set_node_attr(
     PNodeStateToString(tnode.nd_state, FinalState, sizeof(FinalState));
 
     sprintf(log_buf, "node %s state changed from %s to %s",
-      pnode->nd_name,
+      pnode->get_name(),
       OrigState,
       FinalState);
 
-    log_event(PBSEVENT_ADMIN,PBS_EVENTCLASS_NODE,pnode->nd_name,log_buf);
+    log_event(PBSEVENT_ADMIN,PBS_EVENTCLASS_NODE,pnode->get_name(),log_buf);
     }
 
   /* NOTE:  nd_status properly freed during pbs_attribute alter */
@@ -889,7 +888,7 @@ int mgr_set_node_attr(
 
   /* now add in name as last prop */
 
-  pdest  = init_prop(pnode->nd_name);
+  pdest  = init_prop(pnode->get_name());
 
   *plink = pdest;
 
@@ -918,7 +917,7 @@ int mgr_set_node_attr(
 
   /* now add in name as last status */
 
-  pdest  = init_prop(pnode->nd_name);
+  pdest  = init_prop(pnode->get_name());
 
   *plink = pdest;
 
@@ -1755,7 +1754,7 @@ void mgr_node_set(
         /* modifications succeeded for this node */
         chk_characteristic(pnode, &nci, &need_todo);
 
-        mgr_log_attr(msg_man_set, plist, PBS_EVENTCLASS_NODE, pnode->nd_name);
+        mgr_log_attr(msg_man_set, plist, PBS_EVENTCLASS_NODE, pnode->get_name());
         }
       }  /* END for each node */
 
@@ -1808,7 +1807,7 @@ void mgr_node_set(
           break;
         }
 
-      unlock_node(pnode, "mgr_node_set", (char *)"error", LOGLEVEL);
+      pnode->unlock_node(__func__, (char *)"error", LOGLEVEL);
       
       return;
       } /* END if (rc != 0) */ 
@@ -1817,10 +1816,10 @@ void mgr_node_set(
       /* modifications succeeded for this node */
       chk_characteristic(pnode, &nci, &need_todo);
       
-      mgr_log_attr(msg_man_set, plist, PBS_EVENTCLASS_NODE, pnode->nd_name);
+      mgr_log_attr(msg_man_set, plist, PBS_EVENTCLASS_NODE, pnode->get_name());
       }
 
-    unlock_node(pnode, "mgr_node_set", (char *)"single_node", LOGLEVEL);
+    pnode->unlock_node(__func__, (char *)"single_node", LOGLEVEL);
     } /* END single node case */
 
   if (need_todo & WRITENODE_STATE)
@@ -1862,7 +1861,7 @@ void mgr_node_set(
       /* one or more problems encountered */
 
       for (len = 0, i = 0;i < problem_cnt;i++)
-        len += strlen(problem_nodes[i]->nd_name) + 3;
+        len += strlen(problem_nodes[i]->get_name()) + 3;
 
       len += strlen(pbse_to_txt(PBSE_GMODERR));
 
@@ -1875,7 +1874,7 @@ void mgr_node_set(
           if (i)
             strcat(problem_names, ", ");
 
-          strcat(problem_names, problem_nodes[i]->nd_name);
+          strcat(problem_names, problem_nodes[i]->get_name());
           }
 
         reply_text(preq, PBSE_GMODERR, problem_names);
@@ -1936,9 +1935,9 @@ static void requeue_or_delete_jobs(struct pbsnode *pnode,batch_request *preq)
     }
   for(std::vector<int>::iterator jid = jids.begin();jid != jids.end();jid++)
     {
-    unlock_node(pnode,__func__,NULL,LOGLEVEL);
+    pnode->unlock_node(__func__, NULL, LOGLEVEL);
     job *pjob = svr_find_job_by_id(*jid);
-    lock_node(pnode,__func__,NULL,LOGLEVEL);
+    pnode->lock_node(__func__, NULL, LOGLEVEL);
     if(pjob != NULL)
       {
       batch_request *brRerun = alloc_br(PBS_BATCH_Rerun);
@@ -1959,7 +1958,7 @@ static void requeue_or_delete_jobs(struct pbsnode *pnode,batch_request *preq)
       brDelete->rq_ind.rq_delete.rq_objtype = MGR_OBJ_JOB;
       brDelete->rq_ind.rq_delete.rq_cmd = MGR_CMD_DELETE;
       unlock_ji_mutex(pjob,__func__,NULL,LOGLEVEL);
-      unlock_node(pnode, __func__, NULL, LOGLEVEL);
+      pnode->unlock_node(__func__, NULL, LOGLEVEL);
       int rc = req_rerunjob(brRerun);
       if(rc != PBSE_NONE)
         {
@@ -1974,7 +1973,7 @@ static void requeue_or_delete_jobs(struct pbsnode *pnode,batch_request *preq)
         free_br(brDelete);
         wait_for_job_state(*jid,JOB_STATE_QUEUED,TIMEOUT_FOR_JOB_REQUEUE);
         }
-      lock_node(pnode, __func__, NULL, LOGLEVEL);
+      pnode->lock_node(__func__, NULL, LOGLEVEL);
       }
     }
   }
@@ -2072,7 +2071,7 @@ static void mgr_node_delete(
 
     while ((pnode = next_host(&allnodes,&iter,NULL)) != NULL)
       {
-      snprintf(log_buf,sizeof(log_buf),"%s",pnode->nd_name);
+      snprintf(log_buf,sizeof(log_buf),"%s",pnode->get_name());
 
       effective_node_delete(&pnode);
 
@@ -2085,7 +2084,7 @@ static void mgr_node_delete(
   else
     {
     /* handle single nodes */
-    snprintf(log_buf,sizeof(log_buf),"%s",pnode->nd_name);
+    snprintf(log_buf,sizeof(log_buf),"%s",pnode->get_name());
 
     effective_node_delete(&pnode);
 

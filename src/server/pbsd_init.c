@@ -119,7 +119,6 @@
 #include "csv.h"
 #include "pbs_nodes.h"
 #include "threadpool.h"
-#include "../lib/Libutils/u_lock_ctl.h" /* unlock_node */
 #include "queue_recov.h" /* que_recov_xml */
 #include "utils.h"
 #include "queue_recycler.h" /* queue_recycler */
@@ -411,7 +410,7 @@ void  update_default_np()
       while (pnode->nd_slots.get_total_execution_slots() < default_np)
         add_execution_slot(pnode);
       
-      unlock_node(pnode, __func__, NULL, LOGLEVEL);
+      pnode->unlock_node(__func__, NULL, LOGLEVEL);
       }
 
     if (iter != NULL)
@@ -491,7 +490,7 @@ void make_default_hierarchy(std::vector<std::string>& hierarchy)
     if (level_ds.length() > 0)
       level_ds += ",";
 
-    level_ds += pnode->nd_name;
+    level_ds += pnode->get_name();
 
     if (PBS_MANAGER_SERVICE_PORT != pnode->nd_mom_rm_port)
       {
@@ -501,7 +500,7 @@ void make_default_hierarchy(std::vector<std::string>& hierarchy)
 
     pnode->nd_hierarchy_level = 0;
 
-    unlock_node(pnode, __func__, NULL, LOGLEVEL);
+    pnode->unlock_node(__func__, NULL, LOGLEVEL);
     }
 
   if (iter != NULL)
@@ -615,7 +614,7 @@ void check_if_in_nodes_file(
   if (pnode->nd_hierarchy_level > level_index)
     pnode->nd_hierarchy_level = level_index;
 
-  unlock_node(pnode, __func__, NULL, LOGLEVEL);
+  pnode->unlock_node(__func__, NULL, LOGLEVEL);
 
   if (colon != NULL)
     *colon = ':';
@@ -721,23 +720,23 @@ void add_missing_nodes(
         send_format.push_back("<sp>");
         send_format.push_back("<sl>");
         found_missing_node = true;
-        send_format.push_back(pnode->nd_name);
+        send_format.push_back(pnode->get_name());
         }
       else
         {
         send_format.push_back(",");
-        send_format.push_back(pnode->nd_name);
+        send_format.push_back(pnode->get_name());
         }
 
       snprintf(log_buf, sizeof(log_buf),
         "Node %s found in the nodes file but not in the mom_hierarchy file. Making it a level 1 node",
-        pnode->nd_name);
+        pnode->get_name());
 
       pnode->nd_hierarchy_level = 0;
       log_err( -1, __func__, log_buf);
       }
 
-    unlock_node(pnode, __func__, NULL, LOGLEVEL);
+    pnode->unlock_node(__func__, NULL, LOGLEVEL);
     }
 
   if (iter != NULL)
@@ -871,13 +870,14 @@ void add_all_nodes_to_hello_container()
       if (level_indices[pnode->nd_hierarchy_level] == 0)
         {
         insertion_index = get_insertion_point(pnode, level_indices);
-        level_indices[pnode->nd_hierarchy_level] = add_hello_after(&hellos, pnode->nd_id, insertion_index);
+        level_indices[pnode->nd_hierarchy_level] = add_hello_after(&hellos,
+            pnode->get_node_id(), insertion_index);
         }
       else
-        add_hello_after(&hellos, pnode->nd_id, level_indices[pnode->nd_hierarchy_level]);
+        add_hello_after(&hellos, pnode->get_node_id(), level_indices[pnode->nd_hierarchy_level]);
       }
 
-    unlock_node(pnode, __func__, NULL, LOGLEVEL);
+    pnode->unlock_node(__func__, NULL, LOGLEVEL);
     }
 
   if (iter != NULL)

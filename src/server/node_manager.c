@@ -122,7 +122,6 @@
 #include "u_tree.h"
 #include "threadpool.h"
 #include "node_func.h" /* find_nodebyname */
-#include "../lib/Libutils/u_lock_ctl.h" /* lock_node, unlock_node */
 #include "../lib/Libnet/lib_net.h" /* socket_read_flush */
 #include "svr_func.h" /* get_svr_attr_* */
 #include "alps_functions.h"
@@ -236,7 +235,7 @@ struct pbsnode *tfind_addr(
   if (pn == NULL)
     return(NULL);
 
-  lock_node(pn, __func__, "pn", LOGLEVEL);
+  pn->lock_node(__func__, "pn", LOGLEVEL);
 
   if ((pn->num_node_boards == 0) ||
       (job_momname == NULL))
@@ -274,8 +273,8 @@ struct pbsnode *tfind_addr(
 
     numa = AVL_find(index, pn->nd_mom_port, pn->node_boards);
 
-    unlock_node(pn, __func__, "pn->numa", LOGLEVEL);
-    lock_node(numa, __func__, "numa", LOGLEVEL);
+    pn->unlock_node(__func__, "pn->numa", LOGLEVEL);
+    numa->lock_node(__func__, "numa", LOGLEVEL);
 
     if (plus != NULL)
       *plus = '+';
@@ -313,7 +312,7 @@ void update_node_state(
   if (LOGLEVEL >= 4)
     {
     sprintf(log_buf, "adjusting state for node %s - state=%d, newstate=%d",
-      (np->nd_name != NULL) ? np->nd_name : "NULL",
+      np->get_name(),
       np->nd_state,
       newstate);
 
@@ -327,7 +326,7 @@ void update_node_state(
     if (!(np->nd_state & INUSE_DOWN))
       {
       sprintf(log_buf, "node %s marked down",
-        (np->nd_name != NULL) ? np->nd_name : "NULL");
+        np->get_name());
 
       np->nd_state |= INUSE_DOWN;
       np->nd_state &= ~INUSE_UNKNOWN;
@@ -341,7 +340,7 @@ void update_node_state(
         ((np->nd_state & INUSE_DOWN) && (LOGLEVEL >= 2)))
       {
       sprintf(log_buf, "node %s marked busy",
-        (np->nd_name != NULL) ? np->nd_name : "NULL");
+        np->get_name());
       }
 
     np->nd_state |= INUSE_BUSY;
@@ -359,7 +358,7 @@ void update_node_state(
         ((np->nd_state & INUSE_BUSY) && (LOGLEVEL >= 4)))
       {
       sprintf(log_buf, "node %s marked free",
-        (np->nd_name != NULL) ? np->nd_name : "NULL");
+        np->get_name());
       }
 
     np->nd_state &= ~INUSE_BUSY;
@@ -431,9 +430,9 @@ int is_job_on_node(
       {
       numa = AVL_find(i,pnode->nd_mom_port,pnode->node_boards);
 
-      lock_node(numa, __func__, "before check_node_for_job numa", LOGLEVEL);
+      numa->lock_node(__func__, "before check_node_for_job numa", LOGLEVEL);
       present = check_node_for_job(pnode, internal_job_id);
-      unlock_node(numa, __func__, "after check_node_for_job numa", LOGLEVEL);
+      numa->unlock_node(__func__, "after check_node_for_job numa", LOGLEVEL);
 
       /* leave loop if we found the job */
       if (present != FALSE)
@@ -460,14 +459,14 @@ int is_job_on_node(
 
 int node_in_exechostlist(
     
-  char *node_name,
-  char *node_ehl)
+  const char *node_name,
+  char       *node_ehl)
 
   {
-  int   rc = FALSE;
-  char *cur_pos = node_ehl;
-  char *new_pos = cur_pos;
-  int   name_len = strlen(node_name);
+  int         rc = FALSE;
+  const char *cur_pos = node_ehl;
+  const char *new_pos = cur_pos;
+  int         name_len = strlen(node_name);
 
   while (1)
     {
@@ -516,7 +515,7 @@ int kill_job_on_mom(
   char           log_buf[LOCAL_LOG_BUF_SIZE];
 
   /* job is reported by mom but server has no record of job */
-  sprintf(log_buf, "stray job %s found on %s", job_id, pnode->nd_name);
+  sprintf(log_buf, "stray job %s found on %s", job_id, pnode->get_name());
   log_err(-1, __func__, log_buf);
   
   conn = svr_connect(pnode->nd_addrs[0], pnode->nd_mom_port, &local_errno, pnode, NULL);
@@ -534,10 +533,10 @@ int kill_job_on_mom(
       snprintf(preq->rq_ind.rq_signal.rq_signame, sizeof(preq->rq_ind.rq_signal.rq_signame), "SIGKILL");
       preq->rq_extra = strdup(SYNC_KILL);
       
-      unlock_node(pnode, __func__, NULL, LOGLEVEL);
+      pnode->unlock_node(__func__, NULL, LOGLEVEL);
       rc = issue_Drequest(conn, preq, true);
       free_br(preq);
-      lock_node(pnode, __func__, NULL, LOGLEVEL);
+      pnode->lock_node(__func__, NULL, LOGLEVEL);
       }
     }
 
@@ -630,9 +629,9 @@ bool job_should_be_killed(
   if ((is_job_on_node(pnode, internal_job_id)) == FALSE)
     {
     /* must lock the job before the node */
-    unlock_node(pnode, __func__, NULL, LOGLEVEL);
+    pnode->unlock_node(__func__, NULL, LOGLEVEL);
     pjob = svr_find_job_by_id(internal_job_id);
-    lock_node(pnode, __func__, NULL, LOGLEVEL);
+    pnode->lock_node(__func__, NULL, LOGLEVEL);
     
     if (pjob != NULL)
       {
@@ -645,7 +644,7 @@ bool job_should_be_killed(
         {
         should_be_on_node = false;
         }
-      else if (node_in_exechostlist(pnode->nd_name, pjob->ji_wattr[JOB_ATR_exec_host].at_val.at_str) == FALSE)
+      else if (node_in_exechostlist(pnode->get_name(), pjob->ji_wattr[JOB_ATR_exec_host].at_val.at_str) == FALSE)
         {
         should_be_on_node = false;
         }
@@ -763,9 +762,9 @@ void sync_node_jobs_with_moms(
       }
     if (removejob || removealljobs)
       {
-      unlock_node(np, __func__, NULL, LOGLEVEL);
+      np->unlock_node(__func__, NULL, LOGLEVEL);
       job *pjob = svr_find_job(jobid, TRUE);
-      lock_node(np, __func__, NULL, LOGLEVEL);
+      np->lock_node(__func__, NULL, LOGLEVEL);
       if (pjob)
         unlock_ji_mutex(pjob, __func__, NULL, LOGLEVEL);
       else
@@ -778,7 +777,7 @@ void sync_node_jobs_with_moms(
     {
     snprintf(log_buf, sizeof(log_buf),
       "Job %s was not reported in %s update status. Freeing job from node.",
-      job_mapper.get_name(jobsRemoveFromNode[i]), np->nd_name);
+      job_mapper.get_name(jobsRemoveFromNode[i]), np->get_name());
     log_event(PBSEVENT_JOB, PBS_EVENTCLASS_JOB, __func__, log_buf);
     remove_job_from_node(np, jobsRemoveFromNode[i]);
     }
@@ -923,7 +922,7 @@ void *sync_node_jobs(
       job_id.erase(pos);
 
       // must unlock the node to lock the job in this sub-function
-      unlock_node(np, __func__, NULL, LOGLEVEL);
+      np->unlock_node(__func__, NULL, LOGLEVEL);
       process_job_attribute_information(job_id, attributes);
 
       // re-lock the node
@@ -972,7 +971,7 @@ void *sync_node_jobs(
     free(jobs_in_mom);
     }
 
-  unlock_node(np, __func__, NULL, LOGLEVEL);
+  np->unlock_node(__func__, NULL, LOGLEVEL);
 
   return(NULL);
   }  /* END sync_node_jobs() */
@@ -1006,7 +1005,7 @@ void setup_notification(
       
       if (nnew == NULL)
         {
-        unlock_node(pnode, __func__, "nnew == NULL", LOGLEVEL);
+        pnode->unlock_node(__func__, "nnew == NULL", LOGLEVEL);
         return;
         }
       
@@ -1016,7 +1015,7 @@ void setup_notification(
       
       append_link(&svr_newnodes, &nnew->nn_link, nnew);
       
-      unlock_node(pnode, __func__, "nnew != NULL", LOGLEVEL);
+      pnode->unlock_node(__func__, "nnew != NULL", LOGLEVEL);
       }
     }
 
@@ -1120,11 +1119,11 @@ void stream_eof(
     }
 
   /* Before we mark this node down see if we can connect */
-  lock_node(np, __func__, "parent", LOGLEVEL);
+  np->lock_node(__func__, "parent", LOGLEVEL);
   conn = svr_connect(addr, port, &my_err, np, NULL);
-  if(conn >= 0)
+  if (conn >= 0)
     {
-    unlock_node(np, __func__, "parent", LOGLEVEL);
+    np->unlock_node(__func__, "parent", LOGLEVEL);
     svr_disconnect(conn);
     return;
     }
@@ -1132,7 +1131,7 @@ void stream_eof(
 
   sprintf(log_buf,
     "connection to %s is no longer valid, connection may have been closed remotely, remote service may be down, or message may be corrupt (%s).  setting node state to down",
-    np->nd_name,
+    np->get_name(),
     dis_emsg[ret]);
 
   log_err(-1, __func__, log_buf);
@@ -1148,15 +1147,15 @@ void stream_eof(
       {
       pnode = AVL_find(i,np->nd_mom_port,np->node_boards);
 
-      lock_node(pnode, __func__, "subs", LOGLEVEL);
+      pnode->lock_node(__func__, "subs", LOGLEVEL);
       update_node_state(pnode,INUSE_DOWN);
-      unlock_node(pnode, __func__, "subs", LOGLEVEL);
+      pnode->unlock_node(__func__, "subs", LOGLEVEL);
       }
     }
   else
     update_node_state(np, INUSE_DOWN);
 
-  unlock_node(np, __func__, "parent", LOGLEVEL);
+  np->unlock_node(__func__, "parent", LOGLEVEL);
 
   return;
   }  /* END stream_eof() */
@@ -1202,7 +1201,7 @@ void *check_nodes_work(
         if (LOGLEVEL >= 6)
           {
           sprintf(log_buf, "node %s not detected in %ld seconds, contacting mom",
-          np->nd_name,
+          np->get_name(),
           (long int)(time_now - np->nd_lastupdate));
           
           log_event(PBSEVENT_ADMIN, PBS_EVENTCLASS_SERVER, __func__, log_buf);
@@ -1211,7 +1210,7 @@ void *check_nodes_work(
         if (LOGLEVEL >= 0)
           {
           sprintf(log_buf, "node %s not detected in %ld seconds, marking node down",
-            np->nd_name,
+            np->get_name(),
             (long int)(time_now - np->nd_lastupdate));
           
           log_event(PBSEVENT_ADMIN, PBS_EVENTCLASS_SERVER, __func__, log_buf);
@@ -1329,10 +1328,10 @@ void *write_node_state_work(
     {
     if (np->nd_state & INUSE_OFFLINE)
       {
-      fprintf(nstatef, fmt, np->nd_name, np->nd_state & savemask);
+      fprintf(nstatef, fmt, np->get_name(), np->nd_state & savemask);
       }
 
-    unlock_node(np, __func__, NULL, LOGLEVEL);
+    np->unlock_node(__func__, NULL, LOGLEVEL);
     } /* END for each node */
 
   if (iter != NULL)
@@ -1407,10 +1406,10 @@ void *write_node_power_state_work(
     {
     if (np->nd_power_state != POWER_STATE_RUNNING)
       {
-      fprintf(nstatef, fmt, np->nd_name, np->nd_power_state);
+      fprintf(nstatef, fmt, np->get_name(), np->nd_power_state);
       }
 
-    unlock_node(np, __func__, NULL, LOGLEVEL);
+    np->unlock_node(__func__, NULL, LOGLEVEL);
     } /* END for each node */
 
   if (iter != NULL)
@@ -1491,10 +1490,10 @@ int write_node_note(void)
     if ((np->nd_note != NULL) && 
         (np->nd_note[0] != '\0'))
       {
-      fprintf(nin, "%s %s\n", np->nd_name, np->nd_note);
+      fprintf(nin, "%s %s\n", np->get_name(), np->nd_note);
       }
     
-    unlock_node(np, __func__, NULL, LOGLEVEL);
+    np->unlock_node(__func__, NULL, LOGLEVEL);
     }
 
   if (iter != NULL)
@@ -1570,7 +1569,7 @@ void *node_unreserve_work(
     if (handle == RESOURCE_T_ALL)
       np->nd_np_to_be_used = 0;
 
-    unlock_node(np, "node_unreserve_work", NULL, LOGLEVEL);
+    np->unlock_node("node_unreserve_work", NULL, LOGLEVEL);
     }
 
   if (iter != NULL)
@@ -1704,7 +1703,7 @@ int gpu_count(
         "Counted %d gpus %s on node %s that was skipped",
         count,
         (freeonly? "free":"available"),
-        pnode->nd_name);
+        pnode->get_name());
     
       log_ext(-1, __func__, log_buf, LOG_DEBUG);
       }
@@ -1754,7 +1753,7 @@ int gpu_count(
       "Counted %d gpus %s on node %s",
       count,
       (freeonly? "free":"available"),
-      pnode->nd_name);
+      pnode->get_name());
 
     log_ext(-1, __func__, log_buf, LOG_DEBUG);
     }
@@ -2150,7 +2149,7 @@ int procs_available(
     {
     procs_avail += pnode->nd_slots.get_number_free();
 
-    unlock_node(pnode, "procs_available", NULL, LOGLEVEL);
+    pnode->unlock_node("procs_available", NULL, LOGLEVEL);
     }
 
   if (iter != NULL)
@@ -2313,7 +2312,7 @@ int save_node_for_adding(
   node_job_add_info *old_next;
   node_job_add_info *cur_naji;
   bool               first = false;
-  int                pnode_id = pnode->nd_id;
+  int                pnode_id = pnode->get_node_id();
 
   if ((first_node_id == pnode_id) ||
       (first_node_id == -1))
@@ -2496,7 +2495,7 @@ int is_compute_node(
   if ((pnode = find_nodebyname(node_id)) != NULL)
     {
     rc = TRUE;
-    unlock_node(pnode, __func__, NULL, LOGLEVEL);
+    pnode->unlock_node(__func__, NULL, LOGLEVEL);
     }
 
   if (colon != NULL)
@@ -2527,7 +2526,7 @@ void release_node_allocation(
       pnode->nd_np_to_be_used    -= current->ppn_needed;
       pnode->nd_ngpus_to_be_used -= current->gpu_needed;
       pnode->nd_nmics_to_be_used -= current->mic_needed;
-      unlock_node(pnode, __func__, NULL, LOGLEVEL);
+      pnode->unlock_node(__func__, NULL, LOGLEVEL);
       }
 
     current = current->next;
@@ -2568,13 +2567,13 @@ int check_for_node_type(
           (!strcmp(p->name, alps_starter_feature)))
         continue;
 
-      lock_node(reporter, __func__, NULL, LOGLEVEL);
+      reporter->lock_node(__func__, NULL, LOGLEVEL);
       pnode = find_node_in_allnodes(reporter->alps_subnodes, p->name);
-      unlock_node(reporter, __func__, NULL, LOGLEVEL);
+      reporter->unlock_node(__func__, NULL, LOGLEVEL);
 
       if (pnode != NULL)
         {
-        unlock_node(pnode, __func__, NULL, LOGLEVEL);
+        pnode->unlock_node(__func__, NULL, LOGLEVEL);
 
         if (nt == ND_TYPE_CRAY)
           {
@@ -2594,7 +2593,7 @@ int check_for_node_type(
           if (pnode->nd_is_alps_login == TRUE)
             login = TRUE;
 
-          unlock_node(pnode, __func__, NULL, LOGLEVEL);
+          pnode->unlock_node(__func__, NULL, LOGLEVEL);
 
           if (nt == ND_TYPE_EXTERNAL)
             {
@@ -2670,7 +2669,7 @@ int add_login_node_if_needed(
     if (login->nd_is_alps_login == FALSE)
       need_to_add_login = true;
 
-    unlock_node(login, __func__, NULL, LOGLEVEL);
+    login->unlock_node(__func__, NULL, LOGLEVEL);
     }
 
   if (need_to_add_login == true)
@@ -2700,13 +2699,13 @@ int add_login_node_if_needed(
         req.gpu = 0;
         req.mic = 0;
         req.prop = NULL;
-        save_node_for_adding(naji, login, &req, login->nd_id, FALSE, -1);
-        first_node_id = login->nd_id;
+        first_node_id = login->get_node_id();
+        save_node_for_adding(naji, login, &req, first_node_id, FALSE, -1);
         }
       
       rc = PBSE_NONE;
 
-      unlock_node(login, __func__, NULL, LOGLEVEL);
+      login->unlock_node(__func__, NULL, LOGLEVEL);
       }
 
     if (prop != NULL)
@@ -2784,7 +2783,7 @@ void record_fitting_node(
       if ((*ard_array)[req->req_id].node_list.length() != 0)
         (*ard_array)[req->req_id].node_list += ',';
 
-      (*ard_array)[req->req_id].node_list += pnode->nd_name;
+      (*ard_array)[req->req_id].node_list += pnode->get_name();
 
       if (req->ppn > (*ard_array)[req->req_id].ppn)
         (*ard_array)[req->req_id].ppn = req->ppn;
@@ -2858,13 +2857,13 @@ int select_nodes_using_hostlist(
       {
       snprintf(log_buf, sizeof(log_buf), "Requested node '%s' is not currently available", req->prop->name);
       log_err(-1, __func__, log_buf);
-      unlock_node(pnode, __func__, NULL, LOGLEVEL);
+      pnode->unlock_node(__func__, NULL, LOGLEVEL);
       break;
       }
     
     record_fitting_node(num, pnode, naji, req, first_node_id, i, num_alps_reqs, job_type, all_reqs, ard_array);
 
-    unlock_node(pnode, __func__, NULL, LOGLEVEL);
+    pnode->unlock_node(__func__, NULL, LOGLEVEL);
     }
 
   return(num);
@@ -2926,7 +2925,7 @@ int select_from_all_nodes(
     /* are all reqs satisfied? */
     if (all_reqs->total_nodes == 0)
       {
-      unlock_node(pnode, __func__, NULL, LOGLEVEL);
+      pnode->unlock_node(__func__, NULL, LOGLEVEL);
       break;
       }
     } /* END for each node */
@@ -2982,7 +2981,7 @@ bool process_as_node_list(
 
   if (pnode != NULL)
     {
-    unlock_node(pnode, __func__, NULL, LOGLEVEL);
+    pnode->unlock_node(__func__, NULL, LOGLEVEL);
 
     if (second_node.size() == 0)
       return(true);
@@ -2997,7 +2996,7 @@ bool process_as_node_list(
 
     if (pnode != NULL)
       {
-      unlock_node(pnode, __func__, NULL, LOGLEVEL);
+      pnode->unlock_node(__func__, NULL, LOGLEVEL);
       return(true);
       }
     }
@@ -3552,7 +3551,7 @@ job_reservation_info *reserve_node(
   job_usage_info jui(pjob->ji_internal_id);
     
   jui.est = node_info->est;
-  node_info->node_id = pnode->nd_id;
+  node_info->node_id = pnode->get_node_id();
   node_info->port = pnode->nd_mom_rm_port;
   pnode->nd_job_usages.push_back(jui);
     
@@ -3593,7 +3592,7 @@ int add_job_to_node(
   if (LOGLEVEL >= 5)
     {
     sprintf(log_buf, "allocated node %s/%d to job %s (nsnfree=%d)",
-      pnode->nd_name,
+      pnode->get_name(),
       snp->index,
       pjob->ji_qs.ji_jobid,
       pnode->nd_slots.get_number_free());
@@ -3726,7 +3725,7 @@ int build_host_list(
   /* initialize the pointers */
   curr = (struct howl *)calloc(1, sizeof(struct howl));
   curr->order = pnode->nd_order;
-  curr->name  = pnode->nd_name;
+  curr->name  = strdup(pnode->get_name());
   curr->index = snp->index;
   curr->port = pnode->nd_mom_rm_port;
 
@@ -3764,8 +3763,8 @@ int add_gpu_to_hostlist(
   static char *gpu = (char *)"gpu";
 
   /* create gpu_name */
-  gpu_name = (char *)calloc(1, strlen(pnode->nd_name) + strlen(gpu) + 2);
-  sprintf(gpu_name, "%s-%s", pnode->nd_name, gpu);
+  gpu_name = (char *)calloc(1, strlen(pnode->get_name()) + strlen(gpu) + 2);
+  sprintf(gpu_name, "%s-%s", pnode->get_name(), gpu);
 
 
   /* initialize the pointers */
@@ -3817,7 +3816,7 @@ int place_gpus_in_hostlist(
     {
     sprintf(log_buf,
       "node: %s j %d ngpus %d need %d",
-      pnode->nd_name,
+      pnode->get_name(),
       j,
       pnode->nd_ngpus,
       pnode->nd_ngpus_needed);
@@ -3860,7 +3859,7 @@ int place_gpus_in_hostlist(
     
     sprintf(log_buf,
       "ADDING gpu %s/%d to exec_gpus still need %d",
-      pnode->nd_name,
+      pnode->get_name(),
       j,
       pnode->nd_ngpus_needed);
 
@@ -3889,7 +3888,7 @@ int place_gpus_in_hostlist(
       
       sprintf(log_buf,
         "Setting gpu %s/%d to state EXCLUSIVE for job %s",
-        pnode->nd_name,
+        pnode->get_name(),
         j,
         pjob->ji_qs.ji_jobid);
       
@@ -3912,7 +3911,7 @@ int place_gpus_in_hostlist(
       
       sprintf(log_buf,
         "Setting gpu %s/%d to state SHARED for job %s",
-        pnode->nd_name,
+        pnode->get_name(),
         j,
         pjob->ji_qs.ji_jobid);
       
@@ -3943,8 +3942,8 @@ int add_mic_to_list(
   static char *mic = (char *)"mic";
 
   /* create gpu_name */
-  name = (char *)calloc(1, strlen(pnode->nd_name) + strlen(mic) + 2);
-  sprintf(name, "%s-%s", pnode->nd_name, mic);
+  name = (char *)calloc(1, strlen(pnode->get_name()) + strlen(mic) + 2);
+  sprintf(name, "%s-%s", pnode->get_name(), mic);
 
 
   /* initialize the pointers */
@@ -4042,7 +4041,7 @@ job_reservation_info *place_subnodes_in_hostlist(
     job_usage_info jui(pjob->ji_internal_id);
     jui.est = node_info->est;
     
-    node_info->node_id = pnode->nd_id;
+    node_info->node_id = pnode->get_node_id();
     pnode->nd_job_usages.push_back(jui);
     
     if ((pnode->nd_slots.get_number_free() <= 0) ||
@@ -4325,16 +4324,16 @@ int record_external_node(
 
   if (pjob->ji_wattr[JOB_ATR_external_nodes].at_val.at_str == NULL)
     {
-    pjob->ji_wattr[JOB_ATR_external_nodes].at_val.at_str = strdup(pnode->nd_name);
+    pjob->ji_wattr[JOB_ATR_external_nodes].at_val.at_str = strdup(pnode->get_name());
     pjob->ji_wattr[JOB_ATR_external_nodes].at_flags |= ATR_VFLAG_SET;
     }
   else
     {
-    len = strlen(pjob->ji_wattr[JOB_ATR_external_nodes].at_val.at_str) + strlen(pnode->nd_name) + 2;
+    len = strlen(pjob->ji_wattr[JOB_ATR_external_nodes].at_val.at_str) + strlen(pnode->get_name()) + 2;
     external_nodes = (char *)calloc(1, len);
 
     snprintf(external_nodes, len, "%s+%s",
-      pjob->ji_wattr[JOB_ATR_external_nodes].at_val.at_str, pnode->nd_name);
+      pjob->ji_wattr[JOB_ATR_external_nodes].at_val.at_str, pnode->get_name());
 
     free(pjob->ji_wattr[JOB_ATR_external_nodes].at_val.at_str);
 
@@ -4413,7 +4412,7 @@ int build_hostlist_nodes_req(
           }
         }
 
-      unlock_node(pnode, __func__, NULL, LOGLEVEL);
+      pnode->unlock_node(__func__, NULL, LOGLEVEL);
       }
 
     current = current->next;
@@ -5271,7 +5270,7 @@ int remove_job_from_nodes_gpus(
       if (pnode->nd_gpus_real)
         {
         /* reset real gpu nodes */
-        tmp_str = pnode->nd_name;
+        tmp_str = pnode->get_name();
         tmp_str += "-gpu/";
         sprintf (num_str, "%d", i);
         tmp_str += num_str;
@@ -5300,7 +5299,7 @@ int remove_job_from_nodes_gpus(
             if (LOGLEVEL >= 7)
               {
               sprintf(log_buf, "freeing node %s gpu %d for job %s",
-                pnode->nd_name,
+                pnode->get_name(),
                 i,
                 pjob->ji_qs.ji_jobid);
               
@@ -5408,7 +5407,7 @@ void free_nodes(
       remove_job_from_node(pnode, pjob->ji_internal_id);
       remove_job_from_nodes_gpus(pnode, pjob);
       remove_job_from_nodes_mics(pnode, pjob);
-      unlock_node(pnode, __func__, NULL, LOGLEVEL);
+      pnode->unlock_node(__func__, NULL, LOGLEVEL);
       }
     }
 
@@ -5419,7 +5418,7 @@ void free_nodes(
     if ((pnode = find_nodebyname(pjob->ji_wattr[JOB_ATR_login_node_id].at_val.at_str)) != NULL)
       {
       remove_job_from_node(pnode, pjob->ji_internal_id);
-      unlock_node(pnode, __func__, NULL, LOGLEVEL);
+      pnode->unlock_node(__func__, NULL, LOGLEVEL);
       }
     }
 
@@ -5450,9 +5449,9 @@ struct pbsnode *get_compute_node(
       }
     }
 
-  lock_node(ar, __func__, NULL, LOGLEVEL);
+  ar->lock_node(__func__, NULL, LOGLEVEL);
   compute_node = create_alps_subnode(ar, node_name);
-  unlock_node(ar, __func__, NULL, LOGLEVEL);
+  ar->unlock_node(__func__, NULL, LOGLEVEL);
 
   return(compute_node);
   } /* END get_compute_node() */
@@ -5561,7 +5560,7 @@ int set_one_old(
     if (pnode->nd_slots.get_number_free() <= 0)
       pnode->nd_state |= INUSE_JOB;
 
-    unlock_node(pnode, __func__, NULL, LOGLEVEL);
+    pnode->unlock_node(__func__, NULL, LOGLEVEL);
     }
   else
     rc = PBSE_UNKNODE;
@@ -5638,9 +5637,9 @@ job *get_job_from_job_usage_info(
   {
   job *pjob;
 
-  unlock_node(pnode, __func__, NULL, LOGLEVEL);
+  pnode->unlock_node(__func__, NULL, LOGLEVEL);
   pjob = svr_find_job_by_id(jui->internal_job_id);
-  lock_node(pnode, __func__, NULL, LOGLEVEL);
+  pnode->lock_node(__func__, NULL, LOGLEVEL);
 
   return(pjob);
   }
@@ -5655,9 +5654,9 @@ job *get_job_from_jobinfo(
   {
   job *pjob;
 
-  unlock_node(pnode, __func__, NULL, LOGLEVEL);
+  pnode->unlock_node( __func__, NULL, LOGLEVEL);
   pjob = svr_find_job_by_id(jp->internal_job_id);
-  lock_node(pnode, __func__, NULL, LOGLEVEL);
+  pnode->lock_node( __func__, NULL, LOGLEVEL);
 
   return(pjob);
   } /* END get_job_from_jobinfo() */

@@ -193,14 +193,14 @@ int svr_connect(
 
   /* don't keep the node locked through the connecting */
   if (pnode != NULL)
-    unlock_node(pnode, __func__, NULL, LOGLEVEL);
+    pnode->unlock_node(__func__, NULL, LOGLEVEL);
 
   /* establish socket connection to specified host */
   sock = client_to_svr(hostaddr, port, 1, EMsg);
  
   /* re-lock the node after connecting */
   if (pnode != NULL)
-    lock_node(pnode, __func__, NULL, LOGLEVEL);
+    pnode->lock_node(__func__, NULL, LOGLEVEL);
  
   time(&ETime);
 

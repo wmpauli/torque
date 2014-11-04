@@ -27,7 +27,7 @@ int get_alps_statuses(
   while ((alps_node = next_host(parent->alps_subnodes, &iter, NULL)) != NULL)
     {
     rc = status_node(alps_node, preq, bad, pstathd);
-    unlock_node(alps_node, __func__, NULL, LOGLEVEL);
+    alps_node->unlock_node(__func__, NULL, LOGLEVEL);
 
     if (rc != PBSE_NONE)
       break;

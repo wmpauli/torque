@@ -188,7 +188,7 @@ attribute_def node_attr_def[] =
 	/* ND_ATR_jobs */
 	{   (char *)ATTR_NODE_jobs,         /* "jobs" */
 		decode_null,
-		encode_jobs,
+		encode_arst,
 		set_null,
 		comp_null,
 		free_null,
