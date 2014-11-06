@@ -131,7 +131,7 @@
 #include "work_task.h"
 #include "mcom.h"
 #include "../lib/Libattr/attr_node_func.h" /* free_prop_list */
-#include "node_func.h" /* init_prop, find_nodebyname, reinitialize_node_iterator, recompute_ntype_cnts, effective_node_delete, create_pbs_node */
+#include "node_func.h" /* init_prop, find_nodebyname, reinitialize_node_iterator, recompute_ntype_cnts */
 #include "node_manager.h" /* setup_notification */
 #include "queue_func.h" /* find_queuebyname, que_alloc, que_free */
 #include "queue_recov.h" /* que_save */
@@ -166,7 +166,6 @@ extern mom_hierarchy_t *mh;
 extern int que_purge(pbs_queue *);
 extern void save_characteristic(struct pbsnode *, node_check_info *);
 extern int chk_characteristic(struct pbsnode *, node_check_info *, int *);
-extern int hasprop(struct pbsnode *, struct prop *);
 extern int PNodeStateToString(int, char *, int);
 extern job *get_job_from_job_usage_info(job_usage_info *jui, struct pbsnode *pnode);
 
@@ -1725,7 +1724,7 @@ void mgr_node_set(
     while ((pnode = next_node(&allnodes,pnode,&iter)) != NULL)
       {
       if ((propnodes == TRUE) && 
-          (!hasprop(pnode, &props)))
+          (!pnode->has_prop(&props)))
         {
         continue;
         }
@@ -2073,7 +2072,7 @@ static void mgr_node_delete(
       {
       snprintf(log_buf,sizeof(log_buf),"%s",pnode->get_name());
 
-      effective_node_delete(&pnode);
+      delete pnode;
 
       mgr_log_attr(msg_man_set, plist, PBS_EVENTCLASS_NODE, log_buf);
       } /* end loop ( all nodes ) */
@@ -2086,7 +2085,7 @@ static void mgr_node_delete(
     /* handle single nodes */
     snprintf(log_buf,sizeof(log_buf),"%s",pnode->get_name());
 
-    effective_node_delete(&pnode);
+    delete pnode;
 
     mgr_log_attr(msg_man_set, plist, PBS_EVENTCLASS_NODE, log_buf);
     }

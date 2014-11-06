@@ -29,8 +29,6 @@ void save_characteristic(struct pbsnode *pnode, struct node_check_info *nci);
 
 int chk_characteristic(struct pbsnode *pnode, struct node_check_info *nci, int *pneed_todo);
 
-void effective_node_delete(struct pbsnode **pnode);
-
 int update_nodes_file(struct pbsnode *held);
 
 void recompute_ntype_cnts(void);

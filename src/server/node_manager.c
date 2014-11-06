@@ -159,7 +159,6 @@ pthread_mutex_t        *addrnote_mutex = NULL;
 extern int              server_init_type;
 extern int              has_nodes;
 
-extern int create_a_gpusubnode(struct pbsnode *);
 int        is_gpustat_get(struct pbsnode *np, char **str_ptr);
 
 extern int              ctnodes(char *);
@@ -181,27 +180,14 @@ extern all_jobs  alljobs;
 
 extern int              multi_mom;
 
-#define SKIP_NONE       0
-#define SKIP_EXCLUSIVE  1
-#define SKIP_ANYINUSE   2
-#define SKIP_NONE_REUSE 3
-
-#ifndef MAX_BM
-#define MAX_BM          64
-#endif
-
 int handle_complete_first_time(job *pjob);
 int is_compute_node(char *node_id);
-int hasprop(struct pbsnode *, struct prop *);
-int add_job_to_node(struct pbsnode *,struct pbssubn *,short,job *);
 int node_satisfies_request(struct pbsnode *,char *);
 int reserve_node(struct pbsnode *,short,job *,char *,struct howl **);
 int build_host_list(struct howl **,struct pbssubn *,struct pbsnode *);
 int procs_available(int proc_ct);
 void check_nodes(struct work_task *);
-int gpu_entry_by_id(struct pbsnode *,char *, int);
 job *get_job_from_jobinfo(struct jobinfo *,struct pbsnode *);
-int remove_job_from_node(struct pbsnode *pnode, int internal_job_id);
 
 /* marks a stream as finished being serviced */
 pthread_mutex_t        *node_state_mutex = NULL;
@@ -271,7 +257,7 @@ struct pbsnode *tfind_addr(
 
     index = atoi(dash+1);
 
-    numa = AVL_find(index, pn->nd_mom_port, pn->node_boards);
+    numa = AVL_find(index, pn->get_service_port(), pn->node_boards);
 
     pn->unlock_node(__func__, "pn->numa", LOGLEVEL);
     numa->lock_node(__func__, "numa", LOGLEVEL);
@@ -282,170 +268,6 @@ struct pbsnode *tfind_addr(
     return(numa);
     }
   } /* END tfind_addr() */
-
-
-
-
-
-/* update_node_state - central location for updating node state */
-/* NOTE:  called each time a node is marked down, each time a MOM reports node  */
-/*        status, and when pbs_server sends hello/cluster_addrs */
-
-void update_node_state(
-
-  struct pbsnode *np,         /* I (modified) */
-  int             newstate)   /* I (one of INUSE_*) */
-
-  {
-  char            log_buf[LOCAL_LOG_BUF_SIZE];
-
-  /* No need to do anything if newstate == oldstate */
-  if (np->nd_state == newstate)
-    return;
-
-  /*
-   * LOGLEVEL >= 4 logs all state changes
-   *          >= 2 logs down->(busy|free) changes
-   *          (busy|free)->down changes are always logged
-   */
-
-  if (LOGLEVEL >= 4)
-    {
-    sprintf(log_buf, "adjusting state for node %s - state=%d, newstate=%d",
-      np->get_name(),
-      np->nd_state,
-      newstate);
-
-    log_record(PBSEVENT_SCHED, PBS_EVENTCLASS_REQUEST, __func__, log_buf);
-    }
-
-  log_buf[0] = '\0';
-
-  if (newstate & INUSE_DOWN)
-    {
-    if (!(np->nd_state & INUSE_DOWN))
-      {
-      sprintf(log_buf, "node %s marked down",
-        np->get_name());
-
-      np->nd_state |= INUSE_DOWN;
-      np->nd_state &= ~INUSE_UNKNOWN;
-      }
-
-    /* ignoring the obvious possibility of a "down,busy" node */
-    }  /* END if (newstate & INUSE_DOWN) */
-  else if (newstate & INUSE_BUSY)
-    {
-    if ((!(np->nd_state & INUSE_BUSY) && (LOGLEVEL >= 4)) ||
-        ((np->nd_state & INUSE_DOWN) && (LOGLEVEL >= 2)))
-      {
-      sprintf(log_buf, "node %s marked busy",
-        np->get_name());
-      }
-
-    np->nd_state |= INUSE_BUSY;
-
-    np->nd_state &= ~INUSE_UNKNOWN;
-
-    if (np->nd_state & INUSE_DOWN)
-      {
-      np->nd_state &= ~INUSE_DOWN;
-      }
-    }  /* END else if (newstate & INUSE_BUSY) */
-  else if (newstate == INUSE_FREE)
-    {
-    if (((np->nd_state & INUSE_DOWN) && (LOGLEVEL >= 2)) ||
-        ((np->nd_state & INUSE_BUSY) && (LOGLEVEL >= 4)))
-      {
-      sprintf(log_buf, "node %s marked free",
-        np->get_name());
-      }
-
-    np->nd_state &= ~INUSE_BUSY;
-
-    np->nd_state &= ~INUSE_UNKNOWN;
-
-    if (np->nd_state & INUSE_DOWN)
-      {
-      np->nd_state &= ~INUSE_DOWN;
-      }
-    }    /* END else if (newstate == INUSE_FREE) */
-
-  if (newstate & INUSE_UNKNOWN)
-    {
-    np->nd_state |= INUSE_UNKNOWN;
-    }
-
-  if ((LOGLEVEL >= 2) && (log_buf[0] != '\0'))
-    {
-    log_record(PBSEVENT_SCHED, PBS_EVENTCLASS_REQUEST, __func__, log_buf);
-    }
-
-  return;
-  }  /* END update_node_state() */
-
-
-
-
-int check_node_for_job(
-
-  struct pbsnode *pnode,
-  int             internal_job_id)
-
-  {
-  for (int i = 0; i < (int)pnode->nd_job_usages.size(); i++)
-    {
-    const job_usage_info &jui = pnode->nd_job_usages[i];
-
-    if (internal_job_id == jui.internal_job_id)
-      return(TRUE);
-    }
-
-  /* not found */
-  return(FALSE);
-  } /* END check_node_for_job() */
-
-
-
-
-/*
- * is_job_on_node - return TRUE if this internal job id is present on pnode
- */
-
-int is_job_on_node(
-
-  struct pbsnode *pnode,           /* I */
-  int             internal_job_id) /* I */
-
-  {
-  struct pbsnode *numa;
-
-  int             present = FALSE;
-  int             i;
-
-  if (pnode->num_node_boards > 0)
-    {
-    /* check each subnode on each numa node for the job */
-    for (i = 0; i < pnode->num_node_boards; i++)
-      {
-      numa = AVL_find(i,pnode->nd_mom_port,pnode->node_boards);
-
-      numa->lock_node(__func__, "before check_node_for_job numa", LOGLEVEL);
-      present = check_node_for_job(pnode, internal_job_id);
-      numa->unlock_node(__func__, "after check_node_for_job numa", LOGLEVEL);
-
-      /* leave loop if we found the job */
-      if (present != FALSE)
-        break;
-      } /* END for each numa node */
-    }
-  else
-    {
-    present = check_node_for_job(pnode, internal_job_id);
-    }
-
-  return(present);
-  }  /* END is_job_on_node() */
 
 
 
@@ -518,7 +340,7 @@ int kill_job_on_mom(
   sprintf(log_buf, "stray job %s found on %s", job_id, pnode->get_name());
   log_err(-1, __func__, log_buf);
   
-  conn = svr_connect(pnode->nd_addrs[0], pnode->nd_mom_port, &local_errno, pnode, NULL);
+  conn = svr_connect(pnode->nd_addrs[0], pnode->get_service_port(), &local_errno, pnode, NULL);
 
   if (conn >= 0)
     {
@@ -609,7 +431,6 @@ bool job_already_being_killed(
 
 
 
-
 /*
  * If a job is not supposed to be on a node and we have
  * not sent a kill to that job in the last 5 minutes
@@ -626,7 +447,7 @@ bool job_should_be_killed(
   bool  should_kill_job = false;
   job  *pjob;
   
-  if ((is_job_on_node(pnode, internal_job_id)) == FALSE)
+  if ((pnode->is_job_on_node(internal_job_id)) == false)
     {
     /* must lock the job before the node */
     pnode->unlock_node(__func__, NULL, LOGLEVEL);
@@ -779,7 +600,7 @@ void sync_node_jobs_with_moms(
       "Job %s was not reported in %s update status. Freeing job from node.",
       job_mapper.get_name(jobsRemoveFromNode[i]), np->get_name());
     log_event(PBSEVENT_JOB, PBS_EVENTCLASS_JOB, __func__, log_buf);
-    remove_job_from_node(np, jobsRemoveFromNode[i]);
+    np->remove_job_from_node(jobsRemoveFromNode[i]);
     }
   } /* end of sync_node_jobs_with_moms */
 
@@ -1034,54 +855,6 @@ void setup_notification(
 
 
 
-
-
-
-
-/*
- **     reset gpu data in case mom reconnects with changed gpus.
- **     If we have real gpus, not virtual ones, then clear out gpu_status,
- **     gpus count and remove gpu subnodes.
- */
-
-void clear_nvidia_gpus(
-
-  struct pbsnode *np)  /* I */
-
-  {
-  pbs_attribute   temp;
-
-  if ((np->nd_gpus_real) && (np->nd_ngpus > 0))
-    {
-    /* delete gpusubnodes by freeing it */
-    free(np->nd_gpusn);
-    np->nd_gpusn = NULL;
-
-    /* reset # of gpus, etc */
-    np->nd_ngpus = 0;
-    np->nd_ngpus_free = 0;
-
-    /* unset "gpu_status" node attribute */
-
-    memset(&temp, 0, sizeof(temp));
-
-    if (decode_arst(&temp, NULL, NULL, NULL, 0))
-      {
-      log_err(-1, __func__, "clear_nvidia_gpus:  cannot initialize attribute\n");
-
-      return;
-      }
-
-    node_gpustatus_list(&temp, np, ATR_ACTION_ALTER);
-    }
-
-  return;
-  }  /* END clear_nvidia_gpus() */
-
-
-
-
-
 /* EOF on a stream received (either stream or addr must be specified) */
 /* mark node down */
 /* NOTE: pass in stream = -1 if you wish the stream to be optional */
@@ -1145,15 +918,15 @@ void stream_eof(
 
     for (i = 0; i < np->num_node_boards; i++)
       {
-      pnode = AVL_find(i,np->nd_mom_port,np->node_boards);
+      pnode = AVL_find(i, np->get_service_port(), np->node_boards);
 
       pnode->lock_node(__func__, "subs", LOGLEVEL);
-      update_node_state(pnode,INUSE_DOWN);
+      pnode->update_node_state(INUSE_DOWN);
       pnode->unlock_node(__func__, "subs", LOGLEVEL);
       }
     }
   else
-    update_node_state(np, INUSE_DOWN);
+    np->update_node_state(INUSE_DOWN);
 
   np->unlock_node(__func__, "parent", LOGLEVEL);
 
@@ -1192,36 +965,8 @@ void *check_nodes_work(
   /* evaluate all nodes */
   reinitialize_node_iterator(&iter);
 
-  while ((np = next_node(&allnodes,np,&iter)) != NULL)
-    {
-    if (!(np->nd_state & INUSE_DOWN))
-      {
-      if (np->nd_lastupdate < (time_now - chk_len)) 
-        {
-        if (LOGLEVEL >= 6)
-          {
-          sprintf(log_buf, "node %s not detected in %ld seconds, contacting mom",
-          np->get_name(),
-          (long int)(time_now - np->nd_lastupdate));
-          
-          log_event(PBSEVENT_ADMIN, PBS_EVENTCLASS_SERVER, __func__, log_buf);
-          }
-          
-        if (LOGLEVEL >= 0)
-          {
-          sprintf(log_buf, "node %s not detected in %ld seconds, marking node down",
-            np->get_name(),
-            (long int)(time_now - np->nd_lastupdate));
-          
-          log_event(PBSEVENT_ADMIN, PBS_EVENTCLASS_SERVER, __func__, log_buf);
-          }
-        
-        update_node_state(np, (INUSE_DOWN));    
-          
-        /* The node is up. Do not mark the node down, but schedule a check_nodes */
-        }
-      }
-    } /* END for each node */
+  while ((np = next_node(&allnodes, np, &iter)) != NULL)
+    np->set_node_down_if_inactive(time_now, chk_len);
 
   if (iter.node_index != NULL)
     delete iter.node_index;
@@ -1243,7 +988,6 @@ void *check_nodes_work(
 
 
 
-
 /*
  * Mark any nodes that haven't checked in as down.
  * If the node isn't down then it checks to see that the
@@ -1262,10 +1006,6 @@ void check_nodes(
     log_err(rc, __func__, "Unable to enqueue check nodes task into the threadpool");
     }
   }  /* END check_nodes() */
-
-
-
-
 
 
 
@@ -1326,9 +1066,9 @@ void *write_node_state_work(
 
   while ((np = next_host(&allnodes,&iter,NULL)) != NULL)
     {
-    if (np->nd_state & INUSE_OFFLINE)
+    if (np->get_node_state() & INUSE_OFFLINE)
       {
-      fprintf(nstatef, fmt, np->get_name(), np->nd_state & savemask);
+      fprintf(nstatef, fmt, np->get_name(), np->get_node_state() & savemask);
       }
 
     np->unlock_node(__func__, NULL, LOGLEVEL);
@@ -1349,6 +1089,7 @@ void *write_node_state_work(
 
   return(NULL);
   } /* END write_node_state_work() */
+
 
 
 void *write_node_power_state_work(
@@ -1404,9 +1145,9 @@ void *write_node_power_state_work(
 
   while ((np = next_host(&allnodes,&iter,NULL)) != NULL)
     {
-    if (np->nd_power_state != POWER_STATE_RUNNING)
+    if (np->get_node_power_state() != POWER_STATE_RUNNING)
       {
-      fprintf(nstatef, fmt, np->get_name(), np->nd_power_state);
+      fprintf(nstatef, fmt, np->get_name(), np->get_node_power_state());
       }
 
     np->unlock_node(__func__, NULL, LOGLEVEL);
@@ -1441,6 +1182,8 @@ void write_node_state(void)
     }
   }  /* END write_node_state() */
 
+
+
 void write_node_power_state(void)
 
   {
@@ -1451,6 +1194,7 @@ void write_node_power_state(void)
     log_err(rc, __func__, "Unable to enqueue write_node_power_state_work task into the threadpool");
     }
   }  /* END write_node_power_state() */
+
 
 
 /* Create a new node_note file then overwrite the previous one.
@@ -1487,10 +1231,11 @@ int write_node_note(void)
   while ((np = next_host(&allnodes, &iter, NULL)) != NULL)
     {
     /* write node name followed by its note string */
-    if ((np->nd_note != NULL) && 
-        (np->nd_note[0] != '\0'))
+    const char *note = np->get_node_note();
+    if ((note != NULL) && 
+        (note[0] != '\0'))
       {
-      fprintf(nin, "%s %s\n", np->get_name(), np->nd_note);
+      fprintf(nin, "%s %s\n", np->get_name(), note);
       }
     
     np->unlock_node(__func__, NULL, LOGLEVEL);
@@ -1552,22 +1297,21 @@ static void free_prop(
 
 
 
-
 void *node_unreserve_work(
 
   void *vp)
 
   {
-  resource_t       handle = *((resource_t *)vp);
+  resource_t          handle = *((resource_t *)vp);
 
-  struct  pbsnode *np;
+  struct pbsnode     *np;
   all_nodes_iterator *iter = NULL;
 
   /* clear old reserve */
   while ((np = next_host(&allnodes,&iter,NULL)) != NULL)
     {
     if (handle == RESOURCE_T_ALL)
-      np->nd_np_to_be_used = 0;
+      np->set_np_to_be_used(0);
 
     np->unlock_node("node_unreserve_work", NULL, LOGLEVEL);
     }
@@ -1577,8 +1321,6 @@ void *node_unreserve_work(
 
   return(NULL);
   } /* END node_unreserve_work() */
-
-
 
 
 
@@ -1602,220 +1344,6 @@ void node_unreserve(
     log_err(rc, __func__, "Unable to enqueue node_unreserve task into the threadpool");
     }
   }  /* END node_unreserve() */
-
-
-
-
-/*
-** Look through the property list and make sure that all
-** those marked are contained in the node.
-*/
-
-int hasprop(
-
-  struct pbsnode *pnode,
-  struct prop    *props)
-
-  {
-  struct  prop    *need;
-
-  for (need = props; need != NULL; need = need->next)
-    {
-
-    struct prop *pp;
-
-    if (need->mark == 0) /* not marked, skip */
-      continue;
-
-    for (pp = pnode->nd_first;pp != NULL;pp = pp->next)
-      {
-      if (strcmp(pp->name, need->name) == 0)
-        break;  /* found it */
-      }
-
-    if (pp == NULL)
-      {
-      return(0);
-      }
-    }
-
-  return(1);
-  }  /* END hasprop() */
-
-
-
-
-
-/*
- * see if node has the number of processors required
- * if free == SKIP_NONE,  check against total number of processors, else
- * if free != SKIP_NONE,  check against number free
- *
- * Return 1 if possible, 0 if not
- */
-
-static int hasppn(
-
-  struct pbsnode *pnode,     /* I */
-  int             node_req,  /* I */
-  int             free)      /* I */
-
-  {
-  if ((free != SKIP_NONE) &&
-      (free != SKIP_NONE_REUSE) &&
-      (pnode->nd_slots.get_number_free() >= node_req))
-    {
-    return(1);
-    }
-
-  if ((free == SKIP_NONE) && 
-      (pnode->nd_slots.get_total_execution_slots() >= node_req))
-    {
-    return(1);
-    }
-
-  return(0);
-  }  /* END hasppn() */
-
-
-
-
-/*
-** Count how many gpus are available for use on this node
-*/
-int gpu_count(
-
-  struct pbsnode *pnode,    /* I */
-  int             freeonly) /* I */
-
-  {
-  int  count = 0;
-  char log_buf[LOCAL_LOG_BUF_SIZE];
-
-  if ((pnode->nd_state & INUSE_OFFLINE) ||
-      (pnode->nd_state & INUSE_UNKNOWN) ||
-      (pnode->nd_state & INUSE_DOWN)||
-      (pnode->nd_power_state != POWER_STATE_RUNNING))
-    {
-    if (LOGLEVEL >= 7)
-      {
-      sprintf(log_buf,
-        "Counted %d gpus %s on node %s that was skipped",
-        count,
-        (freeonly? "free":"available"),
-        pnode->get_name());
-    
-      log_ext(-1, __func__, log_buf, LOG_DEBUG);
-      }
-    return (count);
-    }
-
-  if (pnode->nd_gpus_real)
-    {
-    int j;
-
-    for (j = 0; j < pnode->nd_ngpus; j++)
-      {
-      struct gpusubn *gn = pnode->nd_gpusn + j;
-
-      /* always ignore unavailable gpus */
-      if (gn->state == gpu_unavailable)
-        continue;
-
-      if (!freeonly)
-        {
-        count++;
-        }
-      else if ((gn->state == gpu_unallocated) ||
-               ((gn->state == gpu_shared) &&
-                (gpu_mode_rqstd == gpu_normal)))
-        {
-        count++;;
-        }
-      }
-    }
-  else
-    {
-    /* virtual gpus */
-    if (freeonly)
-      {
-      count = pnode->nd_ngpus_free;
-      }
-    else
-      {
-      count = pnode->nd_ngpus;
-      }
-    }
-
-  if (LOGLEVEL >= 7)
-    {
-    sprintf(log_buf,
-      "Counted %d gpus %s on node %s",
-      count,
-      (freeonly? "free":"available"),
-      pnode->get_name());
-
-    log_ext(-1, __func__, log_buf, LOG_DEBUG);
-    }
-
-  return(count);
-  }  /* END gpu_count() */
-
-
-
-
-
-/*
-** get gpu index for this gpuid
-*/
-int gpu_entry_by_id(
-
-  struct pbsnode *pnode,  /* I */
-  const char     *gpuid,
-  int             get_empty)
-
-  {
-  if (pnode->nd_gpus_real)
-    {
-    int j;
-
-    for (j = 0; j < pnode->nd_ngpus; j++)
-      {
-      struct gpusubn *gn = pnode->nd_gpusn + j;
-
-      if ((gn->gpuid != NULL) && (strcmp(gpuid, gn->gpuid) == 0))
-        {
-        return(j);
-        }
-      }
-    }
-
-  /*
-   * we did not find the entry.  if get_empty is set then look for an empty
-   * slot.  If none is found then try to add a new entry to nd_gpusn
-   */
-
-  if (get_empty)
-    {
-    int j;
-
-    for (j = 0; j < pnode->nd_ngpus; j++)
-      {
-      struct gpusubn *gn = pnode->nd_gpusn + j;
-
-      if (gn->gpuid == NULL)
-        {
-        return(j);
-        }
-      }
-
-    create_a_gpusubnode(pnode);
-    return (pnode->nd_ngpus - 1);    
-    }
-
-  return (-1);
-  }  /* END gpu_entry_by_id() */
-
 
 
 
@@ -2147,7 +1675,7 @@ int procs_available(
 
   while ((pnode = next_host(&allnodes,&iter,NULL)) != NULL)
     {
-    procs_avail += pnode->nd_slots.get_number_free();
+    procs_avail += pnode->get_execution_slot_free_count();
 
     pnode->unlock_node("procs_available", NULL, LOGLEVEL);
     }
@@ -2162,75 +1690,6 @@ int procs_available(
 
   return(procs_avail);
   } /* END procs_available() */
-
-
-
-
-bool node_is_spec_acceptable(
-
-  struct pbsnode   *pnode,
-  single_spec_data *spec,
-  char             *ProcBMStr,
-  int              *eligible_nodes,
-  bool              job_is_exclusive)
-
-  {
-  struct prop    *prop = spec->prop;
-
-  int             ppn_req = spec->ppn;
-  int             gpu_req = spec->gpu;
-  int             mic_req = spec->mic;
-  int             gpu_free;
-  int             np_free;
-  int             mic_free;
-
-#ifdef GEOMETRY_REQUESTS
-  if (IS_VALID_STR(ProcBMStr))
-    {
-    if ((pnode->nd_state != INUSE_FREE)||(pnode->nd_power_state != POWER_STATE_RUNNING))
-      return(false);
-
-    if (node_satisfies_request(pnode, ProcBMStr) == FALSE)
-      return(false);
-    }
-#endif
-
-  /* NYI: check if these are necessary */
-  pnode->nd_flag = okay;
-
-  /* make sure that the node has properties */
-  if (hasprop(pnode, prop) == FALSE)
-    return(false);
-
-  if ((hasppn(pnode, ppn_req, SKIP_NONE) == FALSE) ||
-      (gpu_count(pnode, FALSE) < gpu_req) ||
-      (pnode->nd_nmics < mic_req))
-    return(false);
-
-  (*eligible_nodes)++;
-
-  if (((pnode->nd_state & (INUSE_OFFLINE | INUSE_DOWN | INUSE_RESERVE | INUSE_JOB)) != 0)||(pnode->nd_power_state != POWER_STATE_RUNNING))
-    return(false);
-
-  gpu_free = gpu_count(pnode, TRUE) - pnode->nd_ngpus_to_be_used;
-  np_free  = pnode->nd_slots.get_number_free() - pnode->nd_np_to_be_used;
-  mic_free = pnode->nd_nmics_free - pnode->nd_nmics_to_be_used;
-  
-  if ((ppn_req > np_free) ||
-      (gpu_req > gpu_free) ||
-      (mic_req > mic_free))
-    return(false);
-  if(job_is_exclusive)
-    {
-    if(pnode->nd_slots.get_number_free() != pnode->nd_slots.get_total_execution_slots())
-      {
-      return false;
-      }
-    }
-
-  return(true);
-  } /* END node_is_spec_acceptable() */
-
 
 
 
@@ -2317,12 +1776,12 @@ int save_node_for_adding(
   if ((first_node_id == pnode_id) ||
       (first_node_id == -1))
     {
-    pnode->nd_order = 0;
+    pnode->set_order(0);
     first = true;
     req_rank = 0;
     }
   else
-    pnode->nd_order = 1;
+    pnode->set_order(1);
 
   if (naji->node_id == -1)
     {
@@ -2390,12 +1849,10 @@ int save_node_for_adding(
     }
 
   /* count off the number we have reserved */
-  pnode->nd_np_to_be_used    += req->ppn;
-  pnode->nd_ngpus_to_be_used += req->gpu;
+  pnode->save_space_for_req(req);
 
   return(PBSE_NONE);
   } /* END save_node_for_adding */
-
 
 
 
@@ -2445,7 +1902,6 @@ void set_first_node_name(
 
 
 
-
 int is_reserved_property(
 
   char *prop)
@@ -2472,7 +1928,6 @@ int is_compute_node(
   char *node_id)
 
   {
-  struct pbsnode *pnode;
   int             rc = FALSE;
   char           *colon;
   char           *plus;
@@ -2492,11 +1947,8 @@ int is_compute_node(
   if ((plus = strchr(node_id, '+')) != NULL)
     *plus = '\0';
 
-  if ((pnode = find_nodebyname(node_id)) != NULL)
-    {
+  if (node_exists(node_id))
     rc = TRUE;
-    pnode->unlock_node(__func__, NULL, LOGLEVEL);
-    }
 
   if (colon != NULL)
     *colon = ':';
@@ -2506,7 +1958,6 @@ int is_compute_node(
 
   return(rc);
   } /* END is_compute_node() */
-
 
 
 
@@ -2523,16 +1974,13 @@ void release_node_allocation(
     {
     if ((pnode = find_nodebyid(current->node_id)) != NULL)
       {
-      pnode->nd_np_to_be_used    -= current->ppn_needed;
-      pnode->nd_ngpus_to_be_used -= current->gpu_needed;
-      pnode->nd_nmics_to_be_used -= current->mic_needed;
+      pnode->abort_request(current);
       pnode->unlock_node(__func__, NULL, LOGLEVEL);
       }
 
     current = current->next;
     }
   } /* END release_node_allocation() */
-
 
 
 
@@ -2584,24 +2032,23 @@ int check_for_node_type(
         }
       else if (nt != ND_TYPE_CRAY)
         {
-        int login = FALSE;
+        bool login = false;
 
         pnode = find_nodebyname(p->name);
 
         if (pnode != NULL)
           {
-          if (pnode->nd_is_alps_login == TRUE)
-            login = TRUE;
+          login = pnode->is_alps_login();
 
           pnode->unlock_node(__func__, NULL, LOGLEVEL);
 
           if (nt == ND_TYPE_EXTERNAL)
             {
-            if (login == FALSE)
+            if (login == false)
               found_type = TRUE;
             }
           else if (nt == ND_TYPE_LOGIN)
-            if (login == TRUE)
+            if (login == true)
               found_type = TRUE;
 
           break;
@@ -2615,7 +2062,6 @@ int check_for_node_type(
 
   return(found_type);
   } /* END check_for_node_type() */
-
 
 
 
@@ -2645,7 +2091,6 @@ enum job_types find_job_type(
 
 
 
-
 int add_login_node_if_needed(
 
   int                &first_node_id,
@@ -2666,8 +2111,7 @@ int add_login_node_if_needed(
     need_to_add_login = true;
   else
     {
-    if (login->nd_is_alps_login == FALSE)
-      need_to_add_login = true;
+    need_to_add_login = !login->is_alps_login();
 
     login->unlock_node(__func__, NULL, LOGLEVEL);
     }
@@ -2717,7 +2161,6 @@ int add_login_node_if_needed(
 
 
 
-
 int node_is_external(
 
   struct pbsnode *pnode)
@@ -2728,8 +2171,8 @@ int node_is_external(
   /* all logins have nd_is_alps_login set to true.
    * all cray computes have their parent pointer set to alps_reporter.
    * if neither of these are found, it must be an external node */
-  if ((pnode->nd_is_alps_login == FALSE) &&
-      (pnode->parent == NULL))
+  if ((pnode->is_alps_login() == false) &&
+      (pnode->get_parent() == NULL))
     is_external = TRUE;
   
   return(is_external);
@@ -2853,7 +2296,7 @@ int select_nodes_using_hostlist(
       return(-2);
       }
     
-    if (node_is_spec_acceptable(pnode, req, ProcBMStr, eligible_nodes,job_is_exclusive) == false)
+    if (pnode->node_is_spec_acceptable(req, ProcBMStr, eligible_nodes, job_is_exclusive, gpu_mode_rqstd) == false)
       {
       snprintf(log_buf, sizeof(log_buf), "Requested node '%s' is not currently available", req->prop->name);
       log_err(-1, __func__, log_buf);
@@ -2911,7 +2354,7 @@ int select_from_all_nodes(
 
       if (req->nodes > 0)
         {
-        if (node_is_spec_acceptable(pnode, req, ProcBMStr, eligible_nodes,job_is_exclusive) == true)
+        if (pnode->node_is_spec_acceptable(req, ProcBMStr, eligible_nodes, job_is_exclusive, gpu_mode_rqstd) == true)
           {
           record_fitting_node(num, pnode, naji, req, first_node_id, i, num_alps_reqs, job_type, all_reqs, ard_array);
 
@@ -3472,7 +2915,8 @@ int node_satisfies_request(
     return(BM_ERROR);
 
   /* nodes are exclusive when we're using bitmaps */
-  if ((pnode->nd_state != INUSE_FREE)||(pnode->nd_power_state != POWER_STATE_RUNNING))
+  if ((pnode->get_node_state() != INUSE_FREE) ||
+      (pnode->get_node_power_state() != POWER_STATE_RUNNING))
     return(FALSE);
 
   BMLen = strlen(ProcBMStr);
@@ -3481,13 +2925,13 @@ int node_satisfies_request(
   BMIndex = BMLen-1;
 
   /* check if the requested processors are available on this node */
-  for (int i = 0; i < pnode->nd_slots.get_total_execution_slots() && BMIndex >= 0; i++)
+  for (int i = 0; i < pnode->get_execution_slot_count() && BMIndex >= 0; i++)
     {
     /* don't check cores that aren't requested */
     if (ProcBMStr[BMIndex--] != '1')
       continue;
 
-    if (pnode->nd_slots.is_occupied(i) == true)
+    if (pnode->is_slot_occupied(i) == true)
       return(FALSE);
     }
 
@@ -3502,7 +2946,6 @@ int node_satisfies_request(
   /* passed all checks, we're good */
   return(TRUE);
   } /* END node_satisfies_request() */
-
 
 
 
@@ -3532,13 +2975,13 @@ job_reservation_info *reserve_node(
   job_reservation_info *node_info = (job_reservation_info *)calloc(1, sizeof(job_reservation_info));
 
   /* now reserve each node */
-  for (int i = 0; i < pnode->nd_slots.get_total_execution_slots() && BMIndex >= 0; i++)
+  for (int i = 0; i < pnode->get_total_execution_slot_count() && BMIndex >= 0; i++)
     {
     /* ignore unrequested cores */
     if (ProcBMStr[BMIndex--] != '1')
       continue;
 
-    pnode->nd_slots.reserve_execution_slot(i, node_info->est);
+    pnode->reserve_execution_slot(i, node_info->est);
     }
 
   if (BMIndex >= 0)
@@ -3552,7 +2995,7 @@ job_reservation_info *reserve_node(
     
   jui.est = node_info->est;
   node_info->node_id = pnode->get_node_id();
-  node_info->port = pnode->nd_mom_rm_port;
+  node_info->port = pnode->get_manager_port();
   pnode->nd_job_usages.push_back(jui);
     
   /* mark the node as exclusive */
@@ -3561,147 +3004,6 @@ job_reservation_info *reserve_node(
   return(node_info);
   }
 #endif /* GEOMETRY_REQUESTS */
-
-
-
-
-/**
- * adds this job to the node's list of jobs
- * checks to be sure not to add duplicates
- *
- * conditionally updates the subnode's state
- * decrements the amount of needed nodes
- *
- * @param pnode - the node that the job is running on
- * @param nd_psn - the subnode (processor) that the job is running on
- * @param newstate - the state nodes are transitioning to when used
- * @param pjob - the job that is going to be run
- */
-int add_job_to_node(
-
-  struct pbsnode *pnode,     /* I/O */
-  struct pbssubn *snp,       /* I/O */
-  short           newstate,  /* I */
-  job            *pjob)      /* I */
-
-  {
-  struct jobinfo *jp;
-  char            log_buf[LOCAL_LOG_BUF_SIZE];
-
-  /* NOTE:  search existing job array.  add job only if job not already in place */
-  if (LOGLEVEL >= 5)
-    {
-    sprintf(log_buf, "allocated node %s/%d to job %s (nsnfree=%d)",
-      pnode->get_name(),
-      snp->index,
-      pjob->ji_qs.ji_jobid,
-      pnode->nd_slots.get_number_free());
-
-    log_record(PBSEVENT_SCHED, PBS_EVENTCLASS_REQUEST, __func__, log_buf);
-    DBPRT(("%s\n", log_buf));
-    }
-
-  for (jp = snp->jobs;jp != NULL;jp = jp->next)
-    {
-    if (jp->internal_job_id == pjob->ji_internal_id)
-      break;
-    }
-
-  if (jp == NULL)
-    {
-    /* add job to front of subnode job array */
-    jp = (struct jobinfo *)calloc(1, sizeof(struct jobinfo));
-
-    jp->next = snp->jobs;
-    snp->jobs = jp;
-    jp->internal_job_id = pjob->ji_internal_id;
-
-    /* if no free VPs, set node state */
-    if ((pnode->nd_slots.get_number_free() <= 0) ||
-        (pjob->ji_wattr[JOB_ATR_node_exclusive].at_val.at_long == TRUE))
-      pnode->nd_state = newstate;
-
-    if (snp->inuse == INUSE_FREE)
-      {
-      snp->inuse = newstate;
-      }
-    }
-
-  /* decrement the amount of nodes needed */
-  --pnode->nd_np_to_be_used;
-
-  return(SUCCESS);
-  } /* END add_job_to_node() */
-
-
-    
-
-int add_job_to_gpu_subnode(
-    
-  struct pbsnode *pnode,
-  struct gpusubn *gn,
-  job            *pjob)
-
-  {
-  if (!pnode->nd_gpus_real)
-    {
-    /* update the gpu subnode */
-    gn->job_internal_id = pjob->ji_internal_id;
-    gn->inuse = TRUE;
-
-    /* update the main node */
-    pnode->nd_ngpus_free--;
-    }
-
-  gn->job_count++;
-  pnode->nd_ngpus_to_be_used--;
-
-  return(PBSE_NONE);
-  } /* END add_job_to_gpu_subnode() */
-
-
-
-
-int add_job_to_mic(
-
-  struct pbsnode *pnode,
-  int             index,
-  job            *pjob)
-
-  {
-  int rc = -1;
-
-  if (pnode->nd_micjobs[index].internal_job_id == -1)
-    {
-    pnode->nd_micjobs[index].internal_job_id = pjob->ji_internal_id;
-    pnode->nd_nmics_free--;
-    pnode->nd_nmics_to_be_used--;
-    rc = PBSE_NONE;
-    }
-
-  return(rc);
-  } /* END add_job_to_mic() */
-
-
-
-
-int remove_job_from_nodes_mics(
-
-  struct pbsnode *pnode,
-  job            *pjob)
-
-  {
-  short i;
-
-  for (i = 0; i < pnode->nd_nmics; i++)
-    {
-    if (pnode->nd_micjobs[i].internal_job_id == pjob->ji_internal_id)
-      pnode->nd_micjobs[i].internal_job_id = -1;
-    }
-
-  return(PBSE_NONE);
-  } /* END remove_job_from_nodes_mics() */
-
 
 
 
@@ -3727,7 +3029,7 @@ int build_host_list(
   curr->order = pnode->nd_order;
   curr->name  = strdup(pnode->get_name());
   curr->index = snp->index;
-  curr->port = pnode->nd_mom_rm_port;
+  curr->port = pnode->get_manager_port();
 
   /* find the proper place in the list */
   for (prev = NULL, hp = *hlistptr;hp;prev = hp, hp = hp->next)
@@ -3752,7 +3054,7 @@ int build_host_list(
 int add_gpu_to_hostlist(
     
   struct howl    **hlistptr,
-  struct gpusubn  *gn,
+  int              gpu_index,
   struct pbsnode  *pnode)
 
   {
@@ -3771,8 +3073,8 @@ int add_gpu_to_hostlist(
   curr = (struct howl *)calloc(1, sizeof(struct howl));
   curr->order = pnode->nd_order;
   curr->name  = gpu_name;
-  curr->index = gn->index;
-  curr->port = pnode->nd_mom_rm_port;
+  curr->index = gpu_index;
+  curr->port = pnode->get_manager_port();
 
   /* find the proper place in the list */
   for (prev = NULL, hp = *hlistptr;hp;prev = hp, hp = hp->next)
@@ -3806,120 +3108,13 @@ int place_gpus_in_hostlist(
   struct howl       **gpu_list)
 
   {
-  int             j;
-  struct gpusubn *gn;
+  int gpu_index;
 
-  char            log_buf[LOCAL_LOG_BUF_SIZE];
-
-  /* place the gpus in the hostlist as well */
-  for (j = 0; j < pnode->nd_ngpus && naji->gpu_needed > 0; j++)
+  while ((naji->gpu_needed > 0) &&
+         ((gpu_index = pnode->get_gpu_index(pjob, gpu_mode_rqstd)) != -1))
     {
-    sprintf(log_buf,
-      "node: %s j %d ngpus %d need %d",
-      pnode->get_name(),
-      j,
-      pnode->nd_ngpus,
-      pnode->nd_ngpus_needed);
-    
-    if (LOGLEVEL >= 7)
-      {
-      log_ext(-1, __func__, log_buf, LOG_DEBUG);
-      }
-    DBPRT(("%s\n", log_buf));
-    
-    gn = pnode->nd_gpusn + j;
-
-    if (pnode->nd_gpus_real)
-      {
-      if ((gn->state == gpu_unavailable) ||
-          (gn->state == gpu_exclusive) ||
-          ((((int)gn->mode == gpu_normal)) &&
-           (gpu_mode_rqstd != gpu_normal) &&
-           (gn->state != gpu_unallocated)))
-        continue;
-      }
-    else
-      {
-      if ((gn->state == gpu_unavailable) ||
-          (gn->inuse == TRUE))
-        continue;
-      }
-
-    if ((gn->state == gpu_unavailable) ||
-        ((gn->state == gpu_exclusive) && pnode->nd_gpus_real) ||
-        ((pnode->nd_gpus_real) &&
-         ((int)gn->mode == gpu_normal) &&
-         ((gpu_mode_rqstd != gpu_normal) && (gn->state != gpu_unallocated))) ||
-        ((!pnode->nd_gpus_real) && 
-         (gn->inuse == TRUE)))
-      continue;
-    
-    add_job_to_gpu_subnode(pnode,gn,pjob);
     naji->gpu_needed--;
-    
-    sprintf(log_buf,
-      "ADDING gpu %s/%d to exec_gpus still need %d",
-      pnode->get_name(),
-      j,
-      pnode->nd_ngpus_needed);
-
-    if (LOGLEVEL >= 7)
-      {
-      log_ext(-1, __func__, log_buf, LOG_DEBUG);
-      }
-    DBPRT(("%s\n", log_buf));
-    
-    add_gpu_to_hostlist(gpu_list,gn,pnode);
-    
-    /*
-     * If this a real gpu in exclusive/single job mode, or a gpu in default
-     * mode and the job requested an exclusive mode then we change state
-     * to exclusive so we cannot assign another job to it
-     */
-    
-    if ((pnode->nd_gpus_real) && 
-        ((gn->mode == gpu_exclusive_thread) ||
-         (gn->mode == gpu_exclusive_process) ||
-         ((gn->mode == gpu_normal) && 
-          ((gpu_mode_rqstd == gpu_exclusive_thread) ||
-           (gpu_mode_rqstd == gpu_exclusive_process)))))
-      {
-      gn->state = gpu_exclusive;
-      
-      sprintf(log_buf,
-        "Setting gpu %s/%d to state EXCLUSIVE for job %s",
-        pnode->get_name(),
-        j,
-        pjob->ji_qs.ji_jobid);
-      
-      if (LOGLEVEL >= 7)
-        {
-        log_ext(-1, __func__, log_buf, LOG_DEBUG);
-        }
-      }
-    
-    /*
-     * If this a real gpu in shared/default job mode and the state is
-     * unallocated then we change state to shared so only other shared jobs
-     * can use it
-     */
-    
-    if ((pnode->nd_gpus_real) && (gn->mode == gpu_normal) && 
-        (gpu_mode_rqstd == gpu_normal) && (gn->state == gpu_unallocated))
-      {
-      gn->state = gpu_shared;
-      
-      sprintf(log_buf,
-        "Setting gpu %s/%d to state SHARED for job %s",
-        pnode->get_name(),
-        j,
-        pjob->ji_qs.ji_jobid);
-      
-      if (LOGLEVEL >= 7)
-        {
-        log_ext(-1, __func__, log_buf, LOG_DEBUG);
-        }
-      }
+    add_gpu_to_hostlist(gpu_list, gpu_index, pnode);
     }
 
   return(PBSE_NONE);
@@ -3951,7 +3146,7 @@ int add_mic_to_list(
   curr->order = pnode->nd_order;
   curr->name  = name;
   curr->index = index;
-  curr->port = pnode->nd_mom_rm_port;
+  curr->port = pnode->get_manager_port();
 
   /* find the proper place in the list */
   for (prev = NULL, hp = *mic_list; hp != NULL; prev = hp, hp = hp->next)
@@ -3984,9 +3179,9 @@ int place_mics_in_hostlist(
   {
   int i;
 
-  for (i = 0; i < pnode->nd_nmics && naji->mic_needed > 0; i++)
+  for (i = 0; i < pnode->get_mic_count() && naji->mic_needed > 0; i++)
     {
-    if (add_job_to_mic(pnode, i, pjob) == PBSE_NONE)
+    if (pnode->add_job_to_mic(i, pjob) == PBSE_NONE)
       {
       naji->mic_needed--;
       add_mic_to_list(mic_list, pnode, i);
@@ -4030,13 +3225,13 @@ job_reservation_info *place_subnodes_in_hostlist(
 #endif
   job_reservation_info   *node_info = (job_reservation_info *)calloc(1, sizeof(job_reservation_info));
 
-  if (pnode->nd_slots.reserve_execution_slots(naji->ppn_needed, node_info->est) == PBSE_NONE)
+  if (pnode->reserve_execution_slots(naji->ppn_needed, node_info->est) == PBSE_NONE)
     {
     /* SUCCESS */
     pnode->nd_np_to_be_used -= naji->ppn_needed;
     naji->ppn_needed = 0;
 
-    node_info->port = pnode->nd_mom_rm_port;
+    node_info->port = pnode->get_manager_port();
     
     job_usage_info jui(pjob->ji_internal_id);
     jui.est = node_info->est;
@@ -4044,7 +3239,7 @@ job_reservation_info *place_subnodes_in_hostlist(
     node_info->node_id = pnode->get_node_id();
     pnode->nd_job_usages.push_back(jui);
     
-    if ((pnode->nd_slots.get_number_free() <= 0) ||
+    if ((pnode->get_execution_slot_free_count() <= 0) ||
         (pjob->ji_wattr[JOB_ATR_node_exclusive].at_val.at_long == TRUE))
       pnode->nd_state |= INUSE_JOB;
     }
@@ -4377,9 +3572,7 @@ int build_hostlist_nodes_req(
       if (failure == true)
         {
         /* just remove the marked request from the node */
-        pnode->nd_np_to_be_used    -= current->ppn_needed;
-        pnode->nd_ngpus_to_be_used -= current->gpu_needed;
-        pnode->nd_nmics_to_be_used -= current->mic_needed;
+        pnode->abort_request(current);
         }
       else
         {
@@ -4406,9 +3599,7 @@ int build_hostlist_nodes_req(
           failure = true;
        
           /* remove any remaining things marked on the node */
-          pnode->nd_np_to_be_used    -= current->ppn_needed;
-          pnode->nd_ngpus_to_be_used -= current->gpu_needed;
-          pnode->nd_nmics_to_be_used -= current->mic_needed;
+          pnode->abort_request(current);
           }
         }
 
@@ -4481,17 +3672,17 @@ int build_hostlist_procs_req(
 
     while ((pnode = next_node(&allnodes,pnode,&iter)) != NULL)
       {
-      int execution_slots_free = pnode->nd_slots.get_number_free();
+      int execution_slots_free = pnode->get_execution_slot_free_count();
 
       if (execution_slots_free > 0)
         {
         job_reservation_info   *node_info = (job_reservation_info *)calloc(1, sizeof(job_reservation_info));
-        if (pnode->nd_slots.reserve_execution_slots(execution_slots_free, node_info->est) == PBSE_NONE)
+        if (pnode->reserve_execution_slots(execution_slots_free, node_info->est) == PBSE_NONE)
           {
           procs_needed -= execution_slots_free;
 
           host_info.push_back(node_info);
-          node_info->port = pnode->nd_mom_rm_port;
+          node_info->port = pnode->get_manager_port();
           }
         else
           free(node_info);
@@ -5091,16 +4282,17 @@ int node_avail(
 
     while ((pn = next_node(&allnodes, pn, &iter)) != NULL)
       {
-      if ((pn->nd_ntype == NTYPE_CLUSTER) && hasprop(pn, prop))
+      if ((pn->nd_ntype == NTYPE_CLUSTER) &&
+          (pn->has_prop(prop)))
         {
         if (pn->nd_state & (INUSE_OFFLINE | INUSE_DOWN))
           ++xdown;
-        else if (hasppn(pn, node_req, SKIP_ANYINUSE))
+        else if (pn->has_ppn(node_req, SKIP_ANYINUSE))
           ++xavail;
-        else if (hasppn(pn, node_req, SKIP_NONE))
+        else if (pn->has_ppn(node_req, SKIP_NONE))
           {
           /* node has enough processors, are they busy or reserved? */
-          j = pn->nd_slots.get_total_execution_slots() - pn->nd_np_to_be_used;
+          j = pn->get_execution_slot_count() - pn->nd_np_to_be_used;
           
           if (j >= node_req)
             ++xresvd;
@@ -5188,13 +4380,13 @@ int node_reserve(
 
     while ((pnode = next_node(&allnodes,pnode,&iter)) != NULL)
       {
-      if (pnode->nd_flag != thinking)
+      if (pnode->get_flag() != thinking)
         {
         continue;   /* skip this one */
         }
 
 
-      if (pnode->nd_np_to_be_used == pnode->nd_slots.get_total_execution_slots())
+      if (pnode->nd_np_to_be_used == pnode->get_execution_slot_count())
         pnode->nd_state |= INUSE_RESERVE;
       } /* END for each node */
     }
@@ -5244,125 +4436,6 @@ char *get_next_exec_host(
 
 
 
-int remove_job_from_nodes_gpus(
-
-  struct pbsnode *pnode,
-  job            *pjob)
-
-  {
-  struct gpusubn *gn;
-  char           *gpu_str = NULL;
-  int             i;
-  char            log_buf[LOCAL_LOG_BUF_SIZE];
-  std::string     tmp_str;
-  char            num_str[6];
- 
-  if (pjob->ji_wattr[JOB_ATR_exec_gpus].at_flags & ATR_VFLAG_SET)
-    gpu_str = pjob->ji_wattr[JOB_ATR_exec_gpus].at_val.at_str;
-
-  if (gpu_str != NULL)
-    {
-    /* reset gpu nodes */
-    for (i = 0; i < pnode->nd_ngpus; i++)
-      {
-      gn = pnode->nd_gpusn + i;
-      
-      if (pnode->nd_gpus_real)
-        {
-        /* reset real gpu nodes */
-        tmp_str = pnode->get_name();
-        tmp_str += "-gpu/";
-        sprintf (num_str, "%d", i);
-        tmp_str += num_str;
-        
-        /* look thru the string and see if it has this host and gpuid.
-         * exec_gpus string should be in format of 
-         * <hostname>-gpu/<index>[+<hostname>-gpu/<index>...]
-         *
-         * if we are using the gpu node exclusively or if shared mode and
-         * this is last job assigned to this gpu then set it's state
-         * unallocated so its available for a new job. Takes time to get the
-         * gpu status report from the moms.
-         */
-        
-        if (strstr(gpu_str, tmp_str.c_str()) != NULL)
-          {
-          gn->job_count--;
-          
-          if ((gn->mode == gpu_exclusive_thread) ||
-              (gn->mode == gpu_exclusive_process) ||
-              ((gn->mode == gpu_normal) && 
-               (gn->job_count == 0)))
-            {
-            gn->state = gpu_unallocated;
-            
-            if (LOGLEVEL >= 7)
-              {
-              sprintf(log_buf, "freeing node %s gpu %d for job %s",
-                pnode->get_name(),
-                i,
-                pjob->ji_qs.ji_jobid);
-              
-              log_record(PBSEVENT_SCHED, PBS_EVENTCLASS_REQUEST, __func__, log_buf);
-              }
-            
-            }
-          }
-        }
-      else
-        {
-        if (gn->job_internal_id == pjob->ji_internal_id)
-          {
-          gn->inuse = FALSE;
-          gn->job_internal_id = -1;
-          
-          pnode->nd_ngpus_free++;
-          }
-        }
-      }
-    }
-
-  return(PBSE_NONE);
-  } /* END remove_job_from_nodes_gpus() */
-
-
-
-
-int remove_job_from_node(
-
-  struct pbsnode *pnode,
-  int             internal_job_id)
-
-  {
-  FUNCTION_TIMER
-  char log_buf[LOCAL_LOG_BUF_SIZE];
-
-  for (int i = 0; i < (int)pnode->nd_job_usages.size(); i++)
-    {
-    const job_usage_info &jui = pnode->nd_job_usages[i];
-
-    if (jui.internal_job_id == internal_job_id)
-      {
-      pnode->nd_slots.unreserve_execution_slots(jui.est);
-      pnode->nd_job_usages.erase(pnode->nd_job_usages.begin() + i);
-
-      if (LOGLEVEL >= 6)
-        {
-        sprintf(log_buf, "increased execution slot free count to %d of %d\n",
-          pnode->nd_slots.get_number_free(),
-          pnode->nd_slots.get_total_execution_slots());
-        
-        log_record(PBSEVENT_SCHED, PBS_EVENTCLASS_REQUEST, __func__, log_buf);
-        }
-
-      pnode->nd_state &= ~INUSE_JOB;
-
-      i--; /* the array has shrunk by 1 so we need to reduce i by one */
-      }
-    }
-  
-  return(PBSE_NONE);
-  } /* END remove_job_from_node() */
 
 
 
@@ -5404,9 +4477,9 @@ void free_nodes(
     {
     if ((pnode = find_nodebyname(hostname)) != NULL)
       {
-      remove_job_from_node(pnode, pjob->ji_internal_id);
-      remove_job_from_nodes_gpus(pnode, pjob);
-      remove_job_from_nodes_mics(pnode, pjob);
+      pnode->remove_job_from_node(pjob->ji_internal_id);
+      pnode->remove_job_from_nodes_gpus(pjob);
+      pnode->remove_job_from_nodes_mics(pjob);
       pnode->unlock_node(__func__, NULL, LOGLEVEL);
       }
     }
@@ -5417,7 +4490,7 @@ void free_nodes(
     {
     if ((pnode = find_nodebyname(pjob->ji_wattr[JOB_ATR_login_node_id].at_val.at_str)) != NULL)
       {
-      remove_job_from_node(pnode, pjob->ji_internal_id);
+      pnode->remove_job_from_node(pjob->ji_internal_id);
       pnode->unlock_node(__func__, NULL, LOGLEVEL);
       }
     }
@@ -5508,9 +4581,9 @@ int set_one_old(
       {
       if (pnode->parent == alps_reporter)
         {
-        while (last >= pnode->nd_slots.get_total_execution_slots())
+        while (last >= pnode->get_execution_slot_count())
           {
-          add_execution_slot(pnode);
+          pnode->add_execution_slot();
           }
         }
       }
@@ -5536,7 +4609,7 @@ int set_one_old(
         for (int index = first; index <= last; index++)
           {
           jui.est.mark_as_used(index);
-          pnode->nd_slots.mark_as_used(index);
+          pnode->mark_slot_as_used(index);
           }
         }
       }
@@ -5551,13 +4624,13 @@ int set_one_old(
       for (int index = first; index <= last; index++)
         {
         jui.est.mark_as_used(index);
-        pnode->nd_slots.mark_as_used(index);
+        pnode->mark_slot_as_used(index);
         }
 
       pnode->nd_job_usages.push_back(jui);
       }
 
-    if (pnode->nd_slots.get_number_free() <= 0)
+    if (pnode->get_execution_slot_free_count() <= 0)
       pnode->nd_state |= INUSE_JOB;
 
     pnode->unlock_node(__func__, NULL, LOGLEVEL);

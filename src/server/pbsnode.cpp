@@ -8,9 +8,13 @@
 #include "log.h"
 #include "timer.hpp"
 #include "pbs_job.h"
+#include "u_tree.h"
 
 void populate_range_string_from_slot_tracker(const execution_slot_tracker &est, std::string &range_str);
 int  unlock_ji_mutex(job *pjob, const char *id, const char *msg, int logging);
+void free_prop_list(struct prop *prop);
+
+extern AvlTree ipaddrs;
 
 
 void pbsnode::set_name(
@@ -18,9 +22,6 @@ void pbsnode::set_name(
   char *name)
 
   {
-  if (this->nd_name != NULL)
-    free(this->nd_name);
-
   this->nd_name = name;
   }
 
@@ -28,30 +29,30 @@ void pbsnode::set_name(
 
 pbsnode::pbsnode(
 
-  char           *pname, /* node name */
-  u_long         *pul,  /* host byte order array of ipaddrs for this node */
-  bool            isNUMANode) : nd_first(NULL), nd_last(NULL), nd_f_st(NULL), nd_l_st(NULL),
-                                nd_addrs(NULL), nd_prop(NULL), nd_status(NULL), nd_note(NULL),
-                                nd_stream(0), nd_flag(okay), nd_mom_port(0), nd_mom_rm_port(0),
-                                nd_sock_addr(), nd_nprops(0), nd_slots(), nd_job_usages(),
-                                nd_needed(0), nd_np_to_be_used(0), nd_state(0), nd_ntype(0),
-                                nd_order(0), nd_warnbad(0), nd_lastupdate(0), nd_hierarchy_level(0),
-                                nd_in_hierarchy(0), nd_ngpus(0), nd_gpus_real(0), nd_gpusn(NULL),
-                                nd_ngpus_free(0), nd_ngpus_needed(0), nd_ngpus_to_be_used(0),
-                                nd_gpustatus(NULL), nd_ngpustatus(0), nd_nmics(0),
-                                nd_micstatus(NULL), nd_micjobs(NULL), nd_nmics_alloced(0),
-                                nd_nmics_free(0), nd_nmics_to_be_used(0), parent(NULL),
-                                num_node_boards(0), node_boards(NULL), numa_str(NULL),
-                                gpu_str(NULL), nd_mom_reported_down(0), nd_is_alps_reporter(0),
-                                nd_is_alps_login(0), nd_ms_jobs(NULL), alps_subnodes(NULL),
-                                max_subnode_nppn(0), nd_power_state(0),
-                                nd_power_state_change_time(0), nd_acl(NULL), nd_requestid(NULL),
-                                nd_error()
+  const char *pname, /* node name */
+  u_long     *pul,  /* host byte order array of ipaddrs for this node */
+  bool        isNUMANode) : nd_first(NULL), nd_last(NULL), nd_f_st(NULL), nd_l_st(NULL),
+                            nd_addrs(NULL), nd_prop(NULL), nd_status(NULL), nd_note(NULL),
+                            nd_flag(okay), nd_mom_port(0), nd_mom_rm_port(0),
+                            nd_sock_addr(), nd_nprops(0), nd_slots(), nd_job_usages(),
+                            nd_needed(0), nd_np_to_be_used(0), nd_state(0), nd_ntype(0),
+                            nd_order(0), nd_warnbad(0), nd_lastupdate(0), nd_hierarchy_level(0),
+                            nd_in_hierarchy(0), nd_ngpus(0), nd_gpus_real(false), nd_gpusn(NULL),
+                            nd_ngpus_free(0), nd_ngpus_needed(0), nd_ngpus_to_be_used(0),
+                            nd_gpustatus(NULL), nd_ngpustatus(0), nd_nmics(0),
+                            nd_micstatus(NULL), nd_micjobs(NULL), nd_nmics_alloced(0),
+                            nd_nmics_free(0), nd_nmics_to_be_used(0), parent(NULL),
+                            num_node_boards(0), node_boards(NULL), numa_str(NULL),
+                            gpu_str(NULL), nd_mom_reported_down(0), nd_is_alps_reporter(0),
+                            nd_is_alps_login(0), nd_ms_jobs(NULL), alps_subnodes(NULL),
+                            max_subnode_nppn(0), nd_power_state(0),
+                            nd_power_state_change_time(0), nd_acl(NULL), nd_requestid(NULL),
+                            nd_error()
 
   {
   struct addrinfo *pAddrInfo;
 
-  this->nd_name = pname;
+  this->nd_name            = pname;
   this->nd_id              = node_mapper.get_new_id(this->get_name());
   this->nd_mom_port        = PBS_MOM_SERVICE_PORT;
   this->nd_mom_rm_port     = PBS_MANAGER_SERVICE_PORT;
@@ -105,11 +106,11 @@ pbsnode::pbsnode(
 
 
 pbsnode::pbsnode() : nd_first(NULL), nd_last(NULL), nd_f_st(NULL), nd_l_st(NULL), nd_addrs(NULL),
-                     nd_prop(NULL), nd_status(NULL), nd_note(NULL), nd_stream(0), nd_flag(okay),
+                     nd_prop(NULL), nd_status(NULL), nd_note(NULL), nd_flag(okay),
                      nd_mom_port(0), nd_mom_rm_port(0), nd_sock_addr(), nd_nprops(0), nd_slots(),
                      nd_job_usages(), nd_needed(0), nd_np_to_be_used(0), nd_state(0), nd_ntype(0),
                      nd_order(0), nd_warnbad(0), nd_lastupdate(0), nd_hierarchy_level(0),
-                     nd_in_hierarchy(0), nd_ngpus(0), nd_gpus_real(0), nd_gpusn(NULL),
+                     nd_in_hierarchy(0), nd_ngpus(0), nd_gpus_real(false), nd_gpusn(NULL),
                      nd_ngpus_free(0), nd_ngpus_needed(0), nd_ngpus_to_be_used(0),
                      nd_gpustatus(NULL), nd_ngpustatus(0), nd_nmics(0), nd_micstatus(NULL),
                      nd_micjobs(NULL), nd_nmics_alloced(0), nd_nmics_free(0),
@@ -130,7 +131,7 @@ pbsnode::pbsnode(
   const pbsnode &other) : nd_first(other.nd_first), nd_last(other.nd_last),
                      nd_f_st(other.nd_f_st), nd_l_st(other.nd_l_st), nd_addrs(other.nd_addrs),
                      nd_prop(other.nd_prop), nd_status(other.nd_status), nd_note(other.nd_note),
-                     nd_stream(other.nd_stream), nd_flag(other.nd_flag),
+                     nd_flag(other.nd_flag),
                      nd_mom_port(other.nd_mom_port), nd_mom_rm_port(other.nd_mom_rm_port),
                      nd_sock_addr(other.nd_sock_addr), nd_nprops(other.nd_nprops),
                      nd_slots(other.nd_slots), nd_job_usages(other.nd_job_usages),
@@ -176,7 +177,7 @@ int pbsnode::get_node_id() const
 const char *pbsnode::get_name() const
 
   {
-  return(this->nd_name);
+  return(this->nd_name.c_str());
   } // END get_node_name()
 
 
@@ -619,3 +620,1296 @@ int pbsnode::unlock_node(
 
   return rc;
   } /* END unlock_node() */
+
+
+
+short pbsnode::get_mic_count() const
+
+  {
+  return(this->nd_nmics);
+  } // END get_mic_count()
+
+
+
+void pbsnode::set_mic_count(
+
+  short new_mics)
+
+  {
+  short old_mics = this->nd_nmics;
+  this->nd_nmics = new_mics;
+
+  if (new_mics > old_mics)
+    {
+    this->nd_nmics_free += new_mics - old_mics;
+
+    if (new_mics > this->nd_nmics_alloced)
+      {
+      struct jobinfo *tmp = (struct jobinfo *)calloc(new_mics, sizeof(struct jobinfo));
+
+      if (tmp != NULL)
+        {
+        memcpy(tmp, this->nd_micjobs, sizeof(struct jobinfo) * this->nd_nmics_alloced);
+        free(this->nd_micjobs);
+        this->nd_micjobs = tmp;
+
+        for (int i = this->nd_nmics_alloced; i < new_mics; i++)
+          this->nd_micjobs[i].internal_job_id = -1;
+
+        this->nd_nmics_alloced = new_mics;
+        }
+      }
+    }
+
+  } // END set_mic_count()
+
+
+
+bool pbsnode::node_is_spec_acceptable(
+
+  single_spec_data *spec,
+  char             *ProcBMStr,
+  int              *eligible_nodes,
+  bool              job_is_exclusive,
+  int               requested_gpu_mode) const
+
+  {
+  struct prop    *prop = spec->prop;
+
+  int             ppn_req = spec->ppn;
+  int             gpu_req = spec->gpu;
+  int             mic_req = spec->mic;
+  int             gpu_free;
+  int             np_free;
+  int             mic_free;
+
+#ifdef GEOMETRY_REQUESTS
+  if (IS_VALID_STR(ProcBMStr))
+    {
+    if ((this->nd_state != INUSE_FREE)||(this->nd_power_state != POWER_STATE_RUNNING))
+      return(false);
+
+    if (node_satisfies_request(this, ProcBMStr) == FALSE)
+      return(false);
+    }
+#endif
+
+  /* make sure that the node has properties */
+  if (this->has_prop(prop) == false)
+    return(false);
+
+  if ((this->has_ppn(ppn_req, SKIP_NONE) == false) ||
+      (this->gpu_count(false, requested_gpu_mode) < gpu_req) ||
+      (this->get_mic_count() < mic_req))
+    return(false);
+
+  (*eligible_nodes)++;
+
+  if (((this->nd_state & (INUSE_OFFLINE | INUSE_DOWN | INUSE_RESERVE | INUSE_JOB)) != 0) ||
+      (this->nd_power_state != POWER_STATE_RUNNING))
+    return(false);
+
+  gpu_free = this->gpu_count(true, requested_gpu_mode) - this->nd_ngpus_to_be_used;
+  np_free  = this->nd_slots.get_number_free() - this->nd_np_to_be_used;
+  mic_free = this->nd_nmics_free - this->nd_nmics_to_be_used;
+  
+  if ((ppn_req > np_free) ||
+      (gpu_req > gpu_free) ||
+      (mic_req > mic_free))
+    return(false);
+
+  if (job_is_exclusive)
+    {
+    if (this->nd_slots.get_number_free() != this->nd_slots.get_total_execution_slots())
+      {
+      return false;
+      }
+    }
+
+  return(true);
+  } /* END node_is_spec_acceptable() */
+
+
+
+/*
+** Look through the property list and make sure that all
+** those marked are contained in the node.
+*/
+
+bool pbsnode::has_prop(
+
+  struct prop *props) const
+
+  {
+  struct prop *need;
+
+  for (need = props; need != NULL; need = need->next)
+    {
+    struct prop *pp;
+
+    if (need->mark == 0) /* not marked, skip */
+      continue;
+
+    for (pp = this->nd_first;pp != NULL;pp = pp->next)
+      {
+      if (strcmp(pp->name, need->name) == 0)
+        break;
+      }
+
+    if (pp == NULL)
+      return(false);
+    }
+
+  return(true);
+  }  /* END has_prop() */
+
+
+
+/*
+ * has_ppn()
+ *
+ *
+ * @param node_req - the number requested
+ * @param free - the way we want this to be compared
+ * @return true if there are sufficient execution slots for the request
+ */
+
+bool pbsnode::has_ppn(
+  
+  int node_req,
+  int free) const
+
+  {
+  if ((free != SKIP_NONE) &&
+      (free != SKIP_NONE_REUSE) &&
+      (this->nd_slots.get_number_free() >= node_req))
+    {
+    return(true);
+    }
+
+  if ((free == SKIP_NONE) && 
+      (this->nd_slots.get_total_execution_slots() >= node_req))
+    {
+    return(true);
+    }
+
+  return(false);
+  }  /* END has_ppn() */
+
+
+
+int pbsnode::gpu_count(
+
+  bool freeonly,
+  int  requested_gpu_mode) const
+
+  {
+  int  count = 0;
+  char log_buf[LOCAL_LOG_BUF_SIZE];
+
+  if ((this->nd_state & INUSE_OFFLINE) ||
+      (this->nd_state & INUSE_UNKNOWN) ||
+      (this->nd_state & INUSE_DOWN)||
+      (this->nd_power_state != POWER_STATE_RUNNING))
+    {
+    if (LOGLEVEL >= 7)
+      {
+      sprintf(log_buf,
+        "Counted %d gpus %s on node %s that was skipped",
+        count,
+        (freeonly ? "free":"available"),
+        this->get_name());
+    
+      log_ext(-1, __func__, log_buf, LOG_DEBUG);
+      }
+
+    return(count);
+    }
+
+  if (this->nd_gpus_real)
+    {
+    for (int j = 0; j < this->nd_ngpus; j++)
+      {
+      struct gpusubn *gn = this->nd_gpusn + j;
+
+      /* always ignore unavailable gpus */
+      if (gn->state == gpu_unavailable)
+        continue;
+
+      if (!freeonly)
+        {
+        count++;
+        }
+      else if ((gn->state == gpu_unallocated) ||
+               ((gn->state == gpu_shared) &&
+                (requested_gpu_mode == gpu_normal)))
+        {
+        count++;;
+        }
+      }
+    }
+  else
+    {
+    /* virtual gpus */
+    if (freeonly)
+      {
+      count = this->nd_ngpus_free;
+      }
+    else
+      {
+      count = this->nd_ngpus;
+      }
+    }
+
+  if (LOGLEVEL >= 7)
+    {
+    sprintf(log_buf,
+      "Counted %d gpus %s on node %s",
+      count,
+      (freeonly ? "free":"available"),
+      this->get_name());
+
+    log_ext(-1, __func__, log_buf, LOG_DEBUG);
+    }
+
+  return(count);
+  }  /* END gpu_count() */
+
+
+
+void pbsnode::abort_request(
+
+  node_job_add_info *naji)
+
+  {
+  this->nd_np_to_be_used    -= naji->ppn_needed;
+  this->nd_ngpus_to_be_used -= naji->gpu_needed;
+  this->nd_nmics_to_be_used -= naji->mic_needed;
+  }
+
+
+
+int pbsnode::add_job_to_mic(
+
+  int  index,
+  job *pjob)
+
+  {
+  int rc = -1;
+
+  if (this->nd_micjobs[index].internal_job_id == -1)
+    {
+    this->nd_micjobs[index].internal_job_id = pjob->ji_internal_id;
+    this->nd_nmics_free--;
+    this->nd_nmics_to_be_used--;
+    rc = PBSE_NONE;
+    }
+
+  return(rc);
+  } /* END add_job_to_mic() */
+
+
+
+void pbsnode::remove_job_from_nodes_mics(
+
+  job *pjob)
+
+  {
+  for (short i = 0; i < this->get_mic_count(); i++)
+    {
+    if (this->nd_micjobs[i].internal_job_id == pjob->ji_internal_id)
+      this->nd_micjobs[i].internal_job_id = -1;
+    }
+  } /* END remove_job_from_nodes_mics() */
+
+
+
+int pbsnode::get_execution_slot_count() const
+
+  {
+  return(this->nd_slots.get_total_execution_slots());
+  }
+
+
+
+int pbsnode::get_execution_slot_free_count() const
+
+  {
+  return(this->nd_slots.get_number_free());
+  }
+
+
+
+int pbsnode::add_execution_slot()
+
+  {
+  this->nd_slots.add_execution_slot();
+
+  if ((this->nd_state & INUSE_JOB) != 0)
+    this->nd_state &= ~INUSE_JOB;
+
+  return(PBSE_NONE);
+  }  /* END add_execution_slot() */
+
+
+
+short pbsnode::get_service_port() const
+
+  {
+  return(this->nd_mom_port);
+  }
+
+
+
+short pbsnode::get_manager_port() const
+
+  {
+  return(this->nd_mom_rm_port);
+  }
+
+
+
+void pbsnode::set_service_port(
+
+  short port)
+
+  {
+  this->nd_mom_port = port;
+  }
+
+
+
+void pbsnode::set_manager_port(
+
+  short port)
+
+  {
+  this->nd_mom_rm_port = port;
+  }
+
+
+
+void pbsnode::delete_a_subnode()
+
+  {
+  this->nd_slots.remove_execution_slot();
+  }
+
+
+int pbsnode::set_execution_slot_count(
+
+  int esc)
+
+  {
+  int old_np = this->nd_slots.get_total_execution_slots();
+  int new_np = esc;
+      
+  if (new_np <= 0)
+    return PBSE_BADATVAL;
+
+  while (new_np != old_np)
+    {
+    if (new_np < old_np)
+      {
+      this->delete_a_subnode();
+      old_np--;
+      }
+    else
+      {
+      this->add_execution_slot();
+      old_np++;
+      }
+    }
+  }
+
+
+
+bool pbsnode::is_slot_occupied(
+
+  int index) const
+
+  {
+  return(this->nd_slots.is_occupied(index));
+  }
+
+
+
+int pbsnode::reserve_execution_slots(
+
+  int                     index,
+  execution_slot_tracker &subset)
+
+  {
+  return(this->nd_slots.reserve_execution_slot(index, subset));
+  }
+
+
+int pbsnode::unreserve_execution_slots(
+
+  const execution_slot_tracker &subset)
+
+  {
+  return(this->nd_slots.unreserve_execution_slots(subset));
+  }
+
+
+int pbsnode::mark_slot_as_used(
+
+  int index)
+
+  {
+  return(this->nd_slots.mark_as_used(index));
+  }
+
+
+
+/* 
+ * update_node_state - central location for updating node state
+ * NOTE:  called each time a node is marked down, each time a MOM reports node  
+ *        status, and when pbs_server sends hello/cluster_addrs
+ *
+ * @param newstate - the new state, one of INUSE_*
+ **/
+
+
+void pbsnode::update_node_state(
+
+  int newstate)
+
+  {
+  char            log_buf[LOCAL_LOG_BUF_SIZE];
+
+  /* No need to do anything if newstate == oldstate */
+  if (this->nd_state == newstate)
+    return;
+
+  /*
+   * LOGLEVEL >= 4 logs all state changes
+   *          >= 2 logs down->(busy|free) changes
+   *          (busy|free)->down changes are always logged
+   */
+
+  if (LOGLEVEL >= 4)
+    {
+    snprintf(log_buf, sizeof(log_buf), "adjusting state for node %s - state=%d, newstate=%d",
+      this->nd_name.c_str(),
+      this->nd_state,
+      newstate);
+
+    log_record(PBSEVENT_SCHED, PBS_EVENTCLASS_REQUEST, __func__, log_buf);
+    }
+
+  if (newstate & INUSE_DOWN)
+    {
+    if (!(this->nd_state & INUSE_DOWN))
+      {
+      snprintf(log_buf, sizeof(log_buf), "node %s marked down", this->get_name());
+
+      this->nd_state |= INUSE_DOWN;
+      this->nd_state &= ~INUSE_UNKNOWN;
+      }
+
+    /* ignoring the obvious possibility of a "down,busy" node */
+    }  /* END if (newstate & INUSE_DOWN) */
+  else if (newstate & INUSE_BUSY)
+    {
+    if ((!(this->nd_state & INUSE_BUSY) && (LOGLEVEL >= 4)) ||
+        ((this->nd_state & INUSE_DOWN) && (LOGLEVEL >= 2)))
+      {
+      sprintf(log_buf, "node %s marked busy",
+        this->get_name());
+      }
+
+    this->nd_state |= INUSE_BUSY;
+
+    this->nd_state &= ~INUSE_UNKNOWN;
+
+    if (this->nd_state & INUSE_DOWN)
+      {
+      this->nd_state &= ~INUSE_DOWN;
+      }
+    }  /* END else if (newstate & INUSE_BUSY) */
+  else if (newstate == INUSE_FREE)
+    {
+    if (((this->nd_state & INUSE_DOWN) && (LOGLEVEL >= 2)) ||
+        ((this->nd_state & INUSE_BUSY) && (LOGLEVEL >= 4)))
+      {
+      sprintf(log_buf, "node %s marked free",
+        this->get_name());
+      }
+
+    this->nd_state &= ~INUSE_BUSY;
+
+    this->nd_state &= ~INUSE_UNKNOWN;
+
+    if (this->nd_state & INUSE_DOWN)
+      {
+      this->nd_state &= ~INUSE_DOWN;
+      }
+    }    /* END else if (newstate == INUSE_FREE) */
+
+  if (newstate & INUSE_UNKNOWN)
+    {
+    this->nd_state |= INUSE_UNKNOWN;
+    }
+
+  if ((LOGLEVEL >= 2) && (log_buf[0] != '\0'))
+    {
+    log_record(PBSEVENT_SCHED, PBS_EVENTCLASS_REQUEST, __func__, log_buf);
+    }
+  }  /* END update_node_state() */
+
+
+
+bool pbsnode::check_node_for_job(
+
+  int internal_job_id) const
+
+  {
+  for (int i = 0; i < (int)this->nd_job_usages.size(); i++)
+    {
+    const job_usage_info &jui = this->nd_job_usages[i];
+
+    if (internal_job_id == jui.internal_job_id)
+      return(TRUE);
+    }
+
+  /* not found */
+  return(FALSE);
+  } /* END check_node_for_job() */
+
+
+
+
+/*
+ * is_job_on_node - return TRUE if this internal job id is present on this
+ */
+
+bool pbsnode::is_job_on_node(
+
+  int             internal_job_id) const
+
+  {
+  struct pbsnode *numa;
+
+  int             present = FALSE;
+  int             i;
+
+  if (this->num_node_boards > 0)
+    {
+    /* check each subnode on each numa node for the job */
+    for (i = 0; i < this->num_node_boards; i++)
+      {
+      numa = AVL_find(i, this->get_service_port(), this->node_boards);
+
+      numa->lock_node(__func__, "before check_node_for_job numa", LOGLEVEL);
+      present = this->check_node_for_job(internal_job_id);
+      numa->unlock_node(__func__, "after check_node_for_job numa", LOGLEVEL);
+
+      /* leave loop if we found the job */
+      if (present != FALSE)
+        break;
+      } /* END for each numa node */
+    }
+  else
+    {
+    present = this->check_node_for_job(internal_job_id);
+    }
+
+  return(present);
+  }  /* END is_job_on_node() */
+
+
+
+/*
+ **     reset gpu data in case mom reconnects with changed gpus.
+ **     If we have real gpus, not virtual ones, then clear out gpu_status,
+ **     gpus count and remove gpu subnodes.
+ */
+
+void pbsnode::clear_nvidia_gpus()
+
+  {
+  pbs_attribute   temp;
+
+  if ((this->nd_gpus_real) &&
+      (this->nd_ngpus > 0))
+    {
+    /* delete gpusubnodes by freeing it */
+    free(this->nd_gpusn);
+    this->nd_gpusn = NULL;
+
+    /* reset # of gpus, etc */
+    this->nd_ngpus = 0;
+    this->nd_ngpus_free = 0;
+
+    /* unset "gpu_status" node attribute */
+
+    memset(&temp, 0, sizeof(temp));
+
+    if (decode_arst(&temp, NULL, NULL, NULL, 0))
+      {
+      log_err(-1, __func__, "clear_nvidia_gpus:  cannot initialize attribute\n");
+
+      return;
+      }
+
+    node_gpustatus_list(&temp, this, ATR_ACTION_ALTER);
+    }
+
+  return;
+  }  /* END clear_nvidia_gpus() */
+
+
+
+void pbsnode::set_node_down_if_inactive(
+
+  time_t time_now,
+  long   chk_len)
+
+  {
+  if (!(this->nd_state & INUSE_DOWN))
+    {
+    if (this->nd_lastupdate < (time_now - chk_len)) 
+      {
+      if (LOGLEVEL >= 0)
+        {
+        char log_buf[LOCAL_LOG_BUF_SIZE];
+        sprintf(log_buf, "node %s not detected in %ld seconds, marking node down",
+          this->get_name(),
+          (long int)(time_now - this->nd_lastupdate));
+        
+        log_event(PBSEVENT_ADMIN, PBS_EVENTCLASS_SERVER, __func__, log_buf);
+        }
+      
+      this->update_node_state(INUSE_DOWN);    
+      }
+    }
+  }
+
+
+
+int pbsnode::get_node_state() const
+
+  {
+  return(this->nd_state);
+  }
+
+
+
+int pbsnode::get_node_power_state() const
+
+  {
+  return(this->nd_power_state);
+  }
+
+
+
+const char *pbsnode::get_node_note() const
+
+  {
+  return(this->nd_note);
+  }
+
+
+
+void pbsnode::set_np_to_be_used(
+
+  int np)
+
+  {
+  this->nd_np_to_be_used = np;
+  }
+
+
+
+/*
+ * gpu_entry_by_id()
+ *
+ * get gpu index for this gpuid
+ */
+
+int pbsnode::gpu_entry_by_id(
+
+  const char     *gpuid,
+  bool            get_empty)
+
+  {
+  if (this->nd_gpus_real)
+    {
+    for (int j = 0; j < this->nd_ngpus; j++)
+      {
+      struct gpusubn *gn = this->nd_gpusn + j;
+
+      if ((gn->gpuid != NULL) &&
+          (!strcmp(gpuid, gn->gpuid)))
+        return(j);
+      }
+    }
+
+  /*
+   * we did not find the entry.  if get_empty is set then look for an empty
+   * slot.  If none is found then try to add a new entry to nd_gpusn
+   */
+
+  if (get_empty)
+    {
+    for (int j = 0; j < this->nd_ngpus; j++)
+      {
+      struct gpusubn *gn = this->nd_gpusn + j;
+
+      if (gn->gpuid == NULL)
+        {
+        return(j);
+        }
+      }
+
+    this->create_a_gpusubnode();
+    return(this->nd_ngpus - 1);    
+    }
+
+  return(-1);
+  }  /* END gpu_entry_by_id() */
+
+
+
+int pbsnode::create_a_gpusubnode()
+
+  {
+  int rc = PBSE_NONE;
+  struct gpusubn *tmp = NULL;
+  
+  tmp = (struct gpusubn *)calloc((1 + this->nd_ngpus), sizeof(struct gpusubn));
+
+  if (tmp == NULL)
+    {
+    rc = PBSE_MEM_MALLOC;
+    log_err(rc,__func__,
+        (char *)"Couldn't allocate memory for a subnode. EPIC FAILURE");
+    return(rc);
+    }
+
+  if (this->nd_ngpus > 0)
+    {
+    /* copy old memory to the new place */
+    memcpy(tmp,this->nd_gpusn,(sizeof(struct gpusubn) * this->nd_ngpus));
+    }
+
+  /* now use the new memory */
+  free(this->nd_gpusn);
+  this->nd_gpusn = tmp;
+
+  /* initialize the node */
+  this->nd_gpus_real = false;
+  this->nd_gpusn[this->nd_ngpus].inuse = FALSE;
+  this->nd_gpusn[this->nd_ngpus].job_internal_id = -1;
+  this->nd_gpusn[this->nd_ngpus].mode = gpu_normal;
+  this->nd_gpusn[this->nd_ngpus].state = gpu_unallocated;
+  this->nd_gpusn[this->nd_ngpus].flag = okay;
+  this->nd_gpusn[this->nd_ngpus].index = this->nd_ngpus;
+  this->nd_gpusn[this->nd_ngpus].gpuid = NULL;
+
+  /* increment the number of gpu subnodes and gpus free */
+  this->nd_ngpus++;
+  this->nd_ngpus_free++;
+
+  return(rc);
+  } /* END create_a_gpusubnode() */
+
+
+
+void pbsnode::set_order(
+
+  int rank)
+
+  {
+  this->nd_order = rank;
+  }
+  
+
+
+void pbsnode::save_space_for_req(
+    
+  single_spec_data *req)
+
+  {
+  this->nd_np_to_be_used += req->ppn;
+  this->nd_ngpus_to_be_used += req->gpu;
+  this->nd_nmics_to_be_used += req->mic;
+  }
+
+
+bool pbsnode::is_alps_login() const
+
+  {
+  return(this->nd_is_alps_login != 0);
+  }
+
+
+pbsnode *pbsnode::get_parent()
+
+  {
+  return(this->parent);
+  }
+
+
+
+int pbsnode::add_job_to_gpu_subnode(
+    
+  struct gpusubn *gn,
+  job            *pjob)
+
+  {
+  if (!this->nd_gpus_real)
+    {
+    /* update the gpu subnode */
+    gn->job_internal_id = pjob->ji_internal_id;
+    gn->inuse = TRUE;
+
+    /* update the main node */
+    this->nd_ngpus_free--;
+    }
+
+  gn->job_count++;
+  this->nd_ngpus_to_be_used--;
+
+  return(PBSE_NONE);
+  } /* END add_job_to_gpu_subnode() */
+
+
+
+void pbsnode::set_real_gpu_mode(
+    
+  struct gpusubn *gn,
+  int             requested_gpu_mode,
+  const char     *jobid)
+
+  {
+  char log_buf[LOCAL_LOG_BUF_SIZE];
+
+  if ((gn->mode == gpu_exclusive_thread) ||
+      (gn->mode == gpu_exclusive_process) ||
+      ((gn->mode == gpu_normal) && 
+       ((requested_gpu_mode == gpu_exclusive_thread) ||
+        (requested_gpu_mode == gpu_exclusive_process))))
+    {
+    /*
+     * If this a real gpu in exclusive/single job mode, or a gpu in default
+     * mode and the job requested an exclusive mode then we change state
+     * to exclusive so we cannot assign another job to it
+     */
+    gn->state = gpu_exclusive;
+    
+    if (LOGLEVEL >= 7)
+      {
+      sprintf(log_buf,
+        "Setting gpu %s/%d to state EXCLUSIVE for job %s",
+        this->get_name(),
+        gn->index,
+        jobid);
+    
+      log_ext(-1, __func__, log_buf, LOG_DEBUG);
+      }
+    }
+  else if ((gn->mode == gpu_normal) &&
+      (requested_gpu_mode == gpu_normal) &&
+      (gn->state == gpu_unallocated))
+    {
+    /*
+     * If this a real gpu in shared/default job mode and the state is
+     * unallocated then we change state to shared so only other shared jobs
+     * can use it
+     */
+  
+    gn->state = gpu_shared;
+    
+    if (LOGLEVEL >= 7)
+      {
+      sprintf(log_buf,
+        "Setting gpu %s/%d to state SHARED for job %s",
+        this->get_name(),
+        gn->index,
+        jobid);
+    
+      log_ext(-1, __func__, log_buf, LOG_DEBUG);
+      }
+    }
+  } // END set_real_gpu_mode()
+
+
+
+bool pbsnode::can_use_gpu(
+    
+  struct gpusubn *gn,
+  int             requested_gpu_mode) const
+
+  {
+  if (this->nd_gpus_real)
+    {
+    if ((gn->state == gpu_unavailable) ||
+        (gn->state == gpu_exclusive) ||
+        ((((int)gn->mode == gpu_normal)) &&
+         (requested_gpu_mode != gpu_normal) &&
+         (gn->state != gpu_unallocated)))
+      return(false);
+    }
+  else
+    {
+    if ((gn->state == gpu_unavailable) ||
+        (gn->inuse == TRUE))
+      return(false);
+    }
+
+  if ((gn->state == gpu_unavailable) ||
+      ((gn->state == gpu_exclusive) && this->nd_gpus_real) ||
+      ((this->nd_gpus_real) &&
+       ((int)gn->mode == gpu_normal) &&
+       ((requested_gpu_mode != gpu_normal) && (gn->state != gpu_unallocated))) ||
+      ((!this->nd_gpus_real) && 
+       (gn->inuse == TRUE)))
+    return(false);
+
+  return(true);
+  } // END can_use_gpu()
+
+
+
+int pbsnode::get_gpu_index(
+
+  job *pjob,
+  int  requested_gpu_mode)
+
+  {
+  struct gpusubn *gn;
+
+  char            log_buf[LOCAL_LOG_BUF_SIZE];
+  int             index = -1;
+
+  /* place the gpus in the hostlist as well */
+  for (int j = 0; j < this->nd_ngpus; j++)
+    {
+    gn = this->nd_gpusn + j;
+
+    if (this->can_use_gpu(gn, requested_gpu_mode) == false)
+      continue;
+
+    // We have found a gpu we'll use
+    
+    this->add_job_to_gpu_subnode(gn, pjob);
+    index = gn->index;
+
+    if (LOGLEVEL >= 7)
+      {
+      sprintf(log_buf,
+        "ADDING gpu %s/%d to exec_gpus still need %d",
+        this->get_name(),
+        j,
+        this->nd_ngpus_needed);
+    
+      log_ext(-1, __func__, log_buf, LOG_DEBUG);
+      }
+    
+    if (this->nd_gpus_real)
+      this->set_real_gpu_mode(gn, requested_gpu_mode, pjob->ji_qs.ji_jobid);
+
+    break;
+    }
+
+  return(index);
+  } // END get_gpu_index()
+
+
+
+short pbsnode::gpu_count() const
+
+  {
+  return(this->nd_ngpus);
+  }
+
+
+
+void pbsnode::delete_a_gpusubnode()
+
+  {
+  if (this->nd_ngpus < 1)
+    {
+    /* ERROR, can't free non-existent subnodes */
+    return;
+    }
+  
+  struct gpusubn *tmp = this->nd_gpusn + (this->nd_ngpus - 1);
+
+  if (tmp->inuse == FALSE)
+    this->nd_ngpus_free--;
+
+  /* decrement the number of gpu subnodes */
+  this->nd_ngpus--;
+  } /* END delete_a_gpusubnode() */
+
+
+
+int pbsnode::set_gpu_count(
+
+  short gpu_count)
+
+  {
+  short old_gp = this->nd_ngpus;
+
+  if (gpu_count <= 0)
+    return(PBSE_BADATVAL);
+
+  while (gpu_count != old_gp)
+    {
+
+    if (gpu_count < old_gp)
+      {
+      this->delete_a_gpusubnode();
+      old_gp--;
+      }
+    else
+      {
+      this->create_a_gpusubnode();
+      old_gp++;
+      }
+    }
+  }
+
+
+
+void pbsnode::remove_job_from_nodes_gpus(
+
+  job *pjob)
+
+  {
+  struct gpusubn *gn;
+  char           *gpu_str = NULL;
+  int             i;
+  char            log_buf[LOCAL_LOG_BUF_SIZE];
+  std::string     tmp_str;
+  char            num_str[6];
+ 
+  if (pjob->ji_wattr[JOB_ATR_exec_gpus].at_flags & ATR_VFLAG_SET)
+    gpu_str = pjob->ji_wattr[JOB_ATR_exec_gpus].at_val.at_str;
+
+  if (gpu_str != NULL)
+    {
+    /* reset gpu nodes */
+    for (i = 0; i < this->nd_ngpus; i++)
+      {
+      gn = this->nd_gpusn + i;
+      
+      if (this->nd_gpus_real)
+        {
+        /* reset real gpu nodes */
+        tmp_str = this->get_name();
+        tmp_str += "-gpu/";
+        sprintf (num_str, "%d", i);
+        tmp_str += num_str;
+        
+        /* look thru the string and see if it has this host and gpuid.
+         * exec_gpus string should be in format of 
+         * <hostname>-gpu/<index>[+<hostname>-gpu/<index>...]
+         *
+         * if we are using the gpu node exclusively or if shared mode and
+         * this is last job assigned to this gpu then set it's state
+         * unallocated so its available for a new job. Takes time to get the
+         * gpu status report from the moms.
+         */
+        
+        if (strstr(gpu_str, tmp_str.c_str()) != NULL)
+          {
+          gn->job_count--;
+          
+          if ((gn->mode == gpu_exclusive_thread) ||
+              (gn->mode == gpu_exclusive_process) ||
+              ((gn->mode == gpu_normal) && 
+               (gn->job_count == 0)))
+            {
+            gn->state = gpu_unallocated;
+            
+            if (LOGLEVEL >= 7)
+              {
+              sprintf(log_buf, "freeing node %s gpu %d for job %s",
+                this->get_name(),
+                i,
+                pjob->ji_qs.ji_jobid);
+              
+              log_record(PBSEVENT_SCHED, PBS_EVENTCLASS_REQUEST, __func__, log_buf);
+              }
+            
+            }
+          }
+        }
+      else
+        {
+        if (gn->job_internal_id == pjob->ji_internal_id)
+          {
+          gn->inuse = FALSE;
+          gn->job_internal_id = -1;
+          
+          this->nd_ngpus_free++;
+          }
+        }
+      }
+    }
+
+  } /* END remove_job_from_nodes_gpus() */
+
+
+
+void pbsnode::remove_job_from_node(
+
+  int internal_job_id)
+
+  {
+  FUNCTION_TIMER
+  char log_buf[LOCAL_LOG_BUF_SIZE];
+
+  for (int i = 0; i < (int)this->nd_job_usages.size(); i++)
+    {
+    const job_usage_info &jui = this->nd_job_usages[i];
+
+    if (jui.internal_job_id == internal_job_id)
+      {
+      this->unreserve_execution_slots(jui.est);
+      this->nd_job_usages.erase(this->nd_job_usages.begin() + i);
+
+      if (LOGLEVEL >= 6)
+        {
+        sprintf(log_buf, "increased execution slot free count to %d of %d\n",
+          this->get_execution_slot_free_count(),
+          this->get_execution_slot_count());
+        
+        log_record(PBSEVENT_SCHED, PBS_EVENTCLASS_REQUEST, __func__, log_buf);
+        }
+
+      this->nd_state &= ~INUSE_JOB;
+
+      i--; /* the array has shrunk by 1 so we need to reduce i by one */
+      }
+    }
+  
+  } /* END remove_job_from_node() */
+
+
+
+bool pbsnode::has_real_gpus() const
+
+  {
+  return(this->nd_gpus_real);
+  }
+
+
+void pbsnode::set_real_gpus()
+
+  {
+  this->nd_gpus_real = true;
+  }
+
+
+
+bool pbsnode::can_set_gpu_mode(
+
+  const char  *gpuid,
+  int          gpumode,
+  std::string &err_msg)
+
+  {
+  int gpuidx;
+
+  /* validate that the node has real gpus not virtual */
+  if (!this->has_real_gpus())
+    {
+    err_msg = "Cannot set mode for non-real gpus.";
+    return(false);
+    }
+
+  /* validate the gpuid exists */
+  if ((gpuidx = this->gpu_entry_by_id(gpuid, false)) == -1)
+    {
+    err_msg = "GPU ID does not exist on node";
+    return(false);
+    }
+
+  /* for mode changes validate the mode with the driver_version */
+  if ((this->nd_gpusn[gpuidx].driver_ver == 260) &&
+      (gpumode > 2))
+    {
+    err_msg = "GPU driver version does not support mode 3";
+    return(false);
+    }
+
+  return(true);
+  }
+
+
+
+enum psit pbsnode::get_flag() const
+
+  {
+  return(this->nd_flag);
+  }
+
+
+
+pbsnode::~pbsnode()
+
+  {
+  u_long          *up;
+
+  remove_node(&allnodes, this);
+  this->unlock_node(__func__, NULL, LOGLEVEL);
+  free(this->nd_mutex);
+
+  if (this->nd_micjobs != NULL)
+    free(this->nd_micjobs);
+
+  this->nd_last->next = NULL;      /* just in case */
+
+  free_prop_list(this->nd_first);
+
+  this->nd_first = NULL;
+
+  if (this->nd_addrs != NULL)
+    {
+    for (up = this->nd_addrs;*up != 0;up++)
+      {
+      /* del node's IP addresses from tree  */
+
+      ipaddrs = AVL_delete_node(*up, this->get_service_port(), ipaddrs);
+      }
+
+    if (this->nd_addrs != NULL)
+      {
+      /* remove array of IP addresses */
+
+      free(this->nd_addrs);
+
+      this->nd_addrs = NULL;
+      }
+    }
+
+  if (this->nd_gpusn != NULL)
+    free(this->nd_gpusn);
+
+  if (this->alps_subnodes != NULL)
+    delete this->alps_subnodes;
+
+  if (this->nd_ms_jobs != NULL)
+    delete this->nd_ms_jobs;
+
+  if (this->nd_acl != NULL)
+    {
+    if (this->nd_acl->as_buf != NULL)
+      {
+      free(this->nd_acl->as_buf);
+      }
+    free(this->nd_acl);
+    }
+
+  if (this->nd_requestid != NULL)
+    delete this->nd_requestid;
+  } // END destructor
+
+
+

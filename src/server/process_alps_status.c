@@ -156,7 +156,7 @@ struct pbsnode *create_alps_subnode(
   int             bad;
   int             rc = PBSE_NONE;
 
-  subnode = new pbsnode(strdup(node_id), NULL, false);
+  subnode = new pbsnode(node_id, NULL, false);
 
   if (strlen(subnode->get_error()) > 0)
     {
@@ -166,7 +166,7 @@ struct pbsnode *create_alps_subnode(
     }
 
   // all nodes have at least 1 core
-  add_execution_slot(subnode);
+  subnode->add_execution_slot();
   
   // we need to increment this count for accuracy  
   svr_clnodes++;
@@ -247,7 +247,7 @@ void *check_if_orphaned(
       while ((handle < 0) &&
              (retries < 3))
         {
-        handle = svr_connect(momaddr, pnode->nd_mom_port, &local_errno, pnode, NULL);
+        handle = svr_connect(momaddr, pnode->get_service_port(), &local_errno, pnode, NULL);
         retries++;
         }
 
@@ -320,20 +320,20 @@ int set_ncpus(
   if (current == NULL)
     return(PBSE_BAD_PARAMETER);
   
-  difference = ncpus - current->nd_slots.get_total_execution_slots();
+  difference = ncpus - current->get_execution_slot_count();
   orig_svr_clnodes = svr_clnodes;
 
   for (i = 0; i < abs(difference); i++)
     {
     if (difference > 0)
       {
-      add_execution_slot(current); 
+      current->add_execution_slot(); 
 
       svr_clnodes++;
       }
     else if (difference < 0)
       {
-      delete_a_subnode(current);
+      current->delete_a_subnode();
       svr_clnodes--;
       }
     }
@@ -343,8 +343,8 @@ int set_ncpus(
     snprintf(log_buffer, sizeof(log_buffer), "ncpus was reduced from %d to %d", orig_svr_clnodes, svr_clnodes);
     log_record(PBSEVENT_SYSTEM, PBS_EVENTCLASS_NODE, __func__, log_buffer);
     }
-  else if (current->nd_slots.get_total_execution_slots() > parent->max_subnode_nppn)
-    parent->max_subnode_nppn = current->nd_slots.get_total_execution_slots();
+  else if (current->get_execution_slot_count() > parent->max_subnode_nppn)
+    parent->max_subnode_nppn = current->get_execution_slot_count();
 
   return(PBSE_NONE);
   } /* END set_ncpus() */
@@ -364,11 +364,11 @@ int set_state(
     return(PBSE_BAD_PARAMETER);
 
   if (!strcmp(state_str, "UP"))
-    update_node_state(pnode, INUSE_FREE);
+    pnode->update_node_state(INUSE_FREE);
   else if (!strcmp(state_str, "DOWN"))
-    update_node_state(pnode, INUSE_DOWN);
+    pnode->update_node_state(INUSE_DOWN);
   else if (!strcmp(state_str, "BUSY"))
-    update_node_state(pnode, INUSE_BUSY);
+    pnode->update_node_state(INUSE_BUSY);
 
   return(PBSE_NONE);
   } /* END set_state() */
@@ -400,12 +400,12 @@ int set_ngpus(
   int             gpu_count)
 
   {
-  int difference = gpu_count - pnode->nd_ngpus;
+  int difference = gpu_count - pnode->gpu_count();
   int i;
 
   for (i = 0; i < difference; i++)
     {
-    if (create_a_gpusubnode(pnode) != PBSE_NONE)
+    if (pnode->create_a_gpusubnode() != PBSE_NONE)
       {
       log_err(ENOMEM, __func__, "");
       return(PBSE_SYSTEM);

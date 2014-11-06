@@ -34,7 +34,7 @@ void *send_power_state_to_mom(
   int handle = 0;
   int local_errno = 0;
 
-  handle = svr_connect(pNode->nd_addrs[0],pNode->nd_mom_port,&local_errno,pNode,NULL);
+  handle = svr_connect(pNode->nd_addrs[0], pNode->get_service_port(), &local_errno, pNode, NULL);
   if (handle < 0)
     {
     pNode->unlock_node(__func__, "Error connecting", LOGLEVEL);
@@ -265,7 +265,7 @@ int set_node_power_state(
   {
     int handle = 0;
     int local_errno = 0;
-    handle = svr_connect(pNode->nd_addrs[0],pNode->nd_mom_port,&local_errno,pNode,NULL);
+    handle = svr_connect(pNode->nd_addrs[0], pNode->get_service_port(), &local_errno, pNode, NULL);
     if (handle < 0)
       {
       pNode->unlock_node(__func__, "Error connecting", LOGLEVEL);

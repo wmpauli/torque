@@ -9,8 +9,6 @@
 #include <string>
 #include <vector>
 
-void update_node_state(struct pbsnode *np, int newstate);
-
 int check_node_for_job(struct pbsnode *pnode, char *jobid);
 
 job *find_job_by_node(struct pbsnode *pnode, char *jobid);
@@ -58,8 +56,6 @@ int get_bitmap(job *pjob, int ProcBMSize, char *ProcBMPtr);
 
 int node_satisfies_request(struct pbsnode *pnode, char *ProcBMStr);
 #endif /* GEOMETRY_REQUESTS */
-
-int add_job_to_node(struct pbsnode *pnode, struct pbssubn *snp, short newstate, job *pjob);
 
 int add_job_to_gpu_subnode(struct pbsnode *pnode, struct gpusubn *gn, job *pjob);
 

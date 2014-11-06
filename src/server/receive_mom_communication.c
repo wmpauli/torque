@@ -479,7 +479,7 @@ void *svr_is_request(
 
       DBPRT(("%s: IS_UPDATE %s 0x%x\n", __func__, node->get_name(), i))
 
-      update_node_state(node, i);
+      node->update_node_state(i);
 
       if ((node->nd_state & INUSE_DOWN) != 0)
         {
@@ -508,7 +508,6 @@ void *svr_is_request(
 
       if (node != NULL)
         {
-        node->nd_stream = -1;
         node_mutex.mark_as_locked();
 
         if (ret == SEND_HELLO)

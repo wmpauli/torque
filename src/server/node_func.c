@@ -98,7 +98,6 @@ job *get_job_from_job_usage_info(job_usage_info *jui, struct pbsnode *pnode);
  *  location depending on which characteristics changed
  * status_nodeattrib() -    add status of each requested (or all) node-pbs_attribute
  *  to the status reply
- * effective_node_delete() -  effectively deletes a node from the server's node
  *  list by setting the node's "deleted" bit
  * setup_notification() -   sets mechanism for notifying other hosts about a new
  *  host
@@ -311,7 +310,7 @@ struct pbsnode *find_nodebyname(
           pnode->lock_node(__func__, NULL, LOGLEVEL);
 
           /* get the NUMA node */
-          numa = AVL_find(numa_index, pnode->nd_mom_port, pnode->node_boards);
+          numa = AVL_find(numa_index, pnode->get_service_port(), pnode->node_boards);
           if (numa != NULL)
             numa->lock_node(__func__, NULL, LOGLEVEL);
 
@@ -477,375 +476,6 @@ int chk_characteristic(
 
 
 
-int login_encode_jobs(
-
-  struct pbsnode *pnode,
-  tlist_head     *phead)
-
-  {
-  job            *pjob;
-  std::string     job_str = "";
-  char            str_buf[MAXLINE*2];
-  svrattrl       *pal;
-
-  if (pnode == NULL)
-    {
-    log_err(PBSE_BAD_PARAMETER, __func__, "NULL input pbsnode pointer");
-    return(PBSE_BAD_PARAMETER);
-    }
-  if (phead == NULL)
-    {
-    log_err(PBSE_BAD_PARAMETER, __func__, "NULL input tlist_head pointer");
-    return(PBSE_BAD_PARAMETER);
-    }
-
-  for (unsigned int i = 0; i < pnode->nd_job_usages.size(); i++)
-    {
-    // must be a copy and not a reference to avoid crashes: get_job_usage_info()
-    // potentially releases the node mutex meaning a reference could refer tp bad
-    // info.
-    job_usage_info  jui = pnode->nd_job_usages[i];
-    int             jui_index;
-    int             jui_iterator = -1;
-    int             login_id = -1;
-
-    pjob = get_job_from_job_usage_info(&jui, pnode);
-    
-    if (pjob != NULL)
-      {
-      login_id = pjob->ji_wattr[JOB_ATR_login_node_key].at_val.at_long;
-      unlock_ji_mutex(pjob, __func__, "1", LOGLEVEL);
-      }
-
-    const char *job_id = NULL;
-    
-    while ((jui_index = jui.est.get_next_occupied_index(jui_iterator)) != -1)
-      {
-      if (job_id == NULL)
-        job_id = job_mapper.get_name(jui.internal_job_id);
-
-      if (pnode->get_node_id() != login_id)
-        {
-        if (job_str.length() != 0)
-          snprintf(str_buf, sizeof(str_buf), ",%d/%s", jui_index, job_id);
-        else
-          snprintf(str_buf, sizeof(str_buf), "%d/%s", jui_index, job_id);
-
-        job_str += str_buf;
-        }
-      }
-    }
-
-
-  if ((pal = attrlist_create((char *)ATTR_NODE_jobs, (char *)NULL, strlen(job_str.c_str()) + 1)) == NULL)
-    {
-    log_err(ENOMEM, __func__, "");
-    return(ENOMEM);
-    }
-
-  strcpy((char *)pal->al_value, job_str.c_str());
-  pal->al_flags = ATR_VFLAG_SET;
-
-  append_link(phead, &pal->al_link, pal);
-
-  return(PBSE_NONE);
-  } /* END login_encode_jobs() */
-
-
-
-
-/* status_nodeattrib() - add status of each requested (or all) node-pbs_attribute to
- *    the status reply
- *
- *      Returns:     0 is success
- *                != 0 is error, if a node-pbs_attribute is incorrectly specified, *bad is
- *   set to the node-pbs_attribute's ordinal position
- */
-
-int status_nodeattrib(
-
-  svrattrl        *pal,    /*an svrattrl from the request  */
-  attribute_def   *padef,  /*the defined node attributes   */
-  struct pbsnode  *pnode,  /*no longer an pbs_attribute ptr */
-  int              limit,  /*number of array elts in padef */
-  int              priv,   /*requester's privilege  */
-
-  tlist_head       *phead, /*heads list of svrattrl structs that hang */
-                           /*off the brp_attr member of the status sub*/
-                           /*structure in the request's "reply area"  */
-
-  int             *bad)    /*if node-pbs_attribute error, record it's*/
-                           /*list position here                 */
-
-  {
-  int   i;
-  int   rc = 0;  /*return code, 0 == success*/
-  int   index;
-  int   nth;  /*tracks list position (ordinal tacker)   */
-
-  pbs_attribute atemp[ND_ATR_LAST]; /*temporary array of attributes   */
-
-  if ((padef == NULL) ||
-      (pnode == NULL) ||
-      (bad == NULL) ||
-      (phead == NULL))
-    {
-    rc = PBSE_BAD_PARAMETER;
-    return(rc);
-    }
-
-  memset(&atemp, 0, sizeof(atemp));
-
-  priv &= ATR_DFLAG_RDACC;    /* user-client privilege          */
-
-  for (i = 0;i < ND_ATR_LAST;i++)
-    {
-    /*set up attributes using data from node*/
-    if (i == ND_ATR_state)
-      atemp[i].at_val.at_short = pnode->nd_state;
-    else if (i == ND_ATR_power_state)
-      atemp[i].at_val.at_short = pnode->nd_power_state;
-    else if (i == ND_ATR_properties)
-      atemp[i].at_val.at_arst = pnode->nd_prop;
-    else if (i == ND_ATR_status)
-      atemp[i].at_val.at_arst = pnode->nd_status;
-    else if (i == ND_ATR_ntype)
-      atemp[i].at_val.at_short = pnode->nd_ntype;
-    else if (i == ND_ATR_ttl)
-      atemp[i].at_val.at_str = (char *)pnode->nd_ttl;
-    else if (i == ND_ATR_acl)
-      atemp[i].at_val.at_arst = pnode->nd_acl;
-    else if (i == ND_ATR_requestid)
-      atemp[i].at_val.at_str = (char *)pnode->nd_requestid->c_str();
-    else if (i == ND_ATR_jobs)
-      atemp[i].at_val.at_jinfo = pnode;
-    else if (i == ND_ATR_np)
-      atemp[i].at_val.at_long = pnode->nd_slots.get_total_execution_slots();
-    else if (i == ND_ATR_note)
-      atemp[i].at_val.at_str  = pnode->nd_note;
-    else if (i == ND_ATR_mom_port)
-      atemp[i].at_val.at_long  = pnode->nd_mom_port;
-    else if (i == ND_ATR_mom_rm_port)
-      atemp[i].at_val.at_long  = pnode->nd_mom_rm_port;
-    /* skip NUMA attributes */
-    else if (i == ND_ATR_num_node_boards)
-      continue;
-    else if (i == ND_ATR_numa_str)
-      continue;
-    else if (i == ND_ATR_gpus_str)
-      continue;
-    else if (i == ND_ATR_gpustatus)
-      atemp[i].at_val.at_arst = pnode->nd_gpustatus;
-    else if (i == ND_ATR_gpus)
-      {
-      if (pnode->nd_ngpus == 0)
-        continue;
-
-      atemp[i].at_val.at_long  = pnode->nd_ngpus;
-      }
-      else if ((padef + i)->at_name != NULL)
-      {
-      if (!strcmp((padef + i)->at_name, ATTR_NODE_mics))
-        {
-        if (pnode->nd_nmics == 0)
-          continue;
-
-        atemp[i].at_val.at_long  = pnode->nd_nmics;
-        }
-      else if (!strcmp((padef + i)->at_name, ATTR_NODE_micstatus))
-        atemp[i].at_val.at_arst = pnode->nd_micstatus;
-      }
-    else
-      {
-      /*we don't ever expect this*/
-      *bad = 0;
-
-      return(PBSE_UNKNODEATR);
-      }
-
-    atemp[i].at_flags = ATR_VFLAG_SET; /*artificially set the value's flags*/
-    }
-
-  if (pal != NULL)
-    {
-    /*caller has requested status on specific node-attributes*/
-    nth = 0;
-
-    while (pal != NULL)
-      {
-      ++nth;
-
-      index = find_attr(padef, pal->al_name, limit);
-
-      if (index < 0)
-        {
-        *bad = nth;  /*name in this position can't be found*/
-
-        rc = PBSE_UNKNODEATR;
-
-        break;
-        }
-
-      if ((padef + index)->at_flags & priv)
-        {
-        if ((index == ND_ATR_jobs) &&
-            (pnode->nd_is_alps_login == TRUE))
-          rc = login_encode_jobs(pnode, phead);
-        else
-          {
-          if (index == ND_ATR_status)
-            atemp[index].at_val.at_arst = pnode->nd_status;
-
-          rc = ((padef + index)->at_encode(
-                &atemp[index],
-                phead,
-                (padef + index)->at_name,
-                NULL,
-                ATR_ENCODE_CLIENT,
-                0));
-          }
-
-        if (rc < 0)
-          {
-          rc = -rc;
-
-          break;
-          }
-        else
-          {
-          /* encoding was successful */
-
-          rc = 0;
-          }
-        }
-
-      pal = (svrattrl *)GET_NEXT(pal->al_link);
-      }  /* END while (pal != NULL) */
-    }    /* END if (pal != NULL) */
-  else
-    {
-    /* non-specific request, return all readable attributes */
-    for (index = 0; index < limit; index++)
-      {
-      if ((index == ND_ATR_jobs) &&
-          (pnode->nd_is_alps_login == TRUE))
-        rc = login_encode_jobs(pnode, phead);
-      else if (((padef + index)->at_flags & priv) &&
-               !((padef + index)->at_flags & ATR_DFLAG_NOSTAT))
-        {
-        if (index == ND_ATR_status)
-          atemp[index].at_val.at_arst = pnode->nd_status;
-
-        rc = (padef + index)->at_encode(
-               &atemp[index],
-               phead,
-               (padef + index)->at_name,
-               NULL,
-               ATR_ENCODE_CLIENT,
-               0);
-
-        if (rc < 0)
-          {
-          rc = -rc;
-
-          break;
-          }
-        else
-          {
-          /* encoding was successful */
-
-          rc = 0;
-          }
-        }
-      }    /* END for (index) */
-    }      /* END else (pal != NULL) */
-
-  return(rc);
-  }  /* END status_nodeattrib() */
-
-
-
-void effective_node_delete(
-
-  struct pbsnode **ppnode)
-
-  {
-  u_long          *up;
-  struct pbsnode* pnode = NULL;
-
-  if (ppnode == NULL)
-    {
-    log_err(PBSE_BAD_PARAMETER, __func__, "NULL node pointer to pointer delete call");
-    return;
-    }
-
-  pnode = *ppnode;
-  if (pnode == NULL)
-    {
-    log_err(PBSE_BAD_PARAMETER, __func__, "NULL node pointer delete call");
-    return;
-    }
-
-  if (pnode->get_name() == NULL)
-    {
-    log_err(PBSE_BAD_PARAMETER, __func__, "NULL node pointer to name delete call");
-    return;
-    }
-
-  remove_node(&allnodes,pnode);
-  pnode->unlock_node(__func__, NULL, LOGLEVEL);
-  free(pnode->nd_mutex);
-
-  pnode->nd_last->next = NULL;      /* just in case */
-
-  free_prop_list(pnode->nd_first);
-
-  pnode->nd_first = NULL;
-
-  if (pnode->nd_addrs != NULL)
-    {
-    for (up = pnode->nd_addrs;*up != 0;up++)
-      {
-      /* del node's IP addresses from tree  */
-
-      ipaddrs = AVL_delete_node( *up, pnode->nd_mom_port, ipaddrs);
-      } 
-
-    if (pnode->nd_addrs != NULL)
-      {
-      /* remove array of IP addresses */
-
-      free(pnode->nd_addrs);
-
-      pnode->nd_addrs = NULL;
-      }
-    }
-
-  //free(pnode->nd_name);
-
-  if(pnode->alps_subnodes != NULL) delete pnode->alps_subnodes;
-
-  if(pnode->nd_ms_jobs != NULL) delete pnode->nd_ms_jobs;
-  if(pnode->nd_acl != NULL)
-    {
-    if(pnode->nd_acl->as_buf != NULL)
-      {
-      free(pnode->nd_acl->as_buf);
-      }
-    free(pnode->nd_acl);
-    }
-  if(pnode->nd_requestid != NULL) delete pnode->nd_requestid;
-
-  free(pnode);
-  *ppnode = NULL;
-
-  return;
-  }  /* END effective_node_delete() */
-
-
-
-
-
 /**
  *  NOTE:  pul can return NULL even on SUCCESS of routine
  *
@@ -866,7 +496,6 @@ static int process_host_name_part(
   struct sockaddr_in *sai;
 
   struct in_addr      addr;
-  char               *phostname;  /* caller supplied hostname   */
   int                 ipcount = 0;
   int                 len;
   int                 totalipcount;
@@ -894,25 +523,15 @@ static int process_host_name_part(
   if (pul == NULL)
     return(PBSE_BAD_PARAMETER);
 
-  phostname = strdup(objname);
-
-  if (phostname == NULL)
-    {
-    return(PBSE_SYSTEM);
-    }
-
   *ntype = NTYPE_CLUSTER;
 
   *pul = NULL;
 
-  if (overwrite_cache(phostname, &addr_info) == false)
+  if (overwrite_cache(objname, &addr_info) == false)
     {
     snprintf(log_buf, sizeof(log_buf), "host %s not found", objname);
 
     log_err(PBSE_UNKNODE, __func__, log_buf);
-
-    free(phostname);
-    phostname = NULL;
 
     return(PBSE_UNKNODE);
     }
@@ -923,7 +542,7 @@ static int process_host_name_part(
 
     snprintf(tmpLine, sizeof(tmpLine),
       "successfully loaded host structure for '%s'->'%s'",
-      phostname,
+      objname,
       addr_info->ai_canonname);
 
     log_event(PBSEVENT_ADMIN, PBS_EVENTCLASS_SERVER, __func__, tmpLine);
@@ -934,8 +553,6 @@ static int process_host_name_part(
 
   if (addr_info->ai_canonname == NULL)
     {
-    free(phostname);
-    
     return(PBSE_SYSTEM);
     }
 
@@ -1005,12 +622,6 @@ static int process_host_name_part(
       
       log_err(PBSE_UNKNODE, __func__, log_buf);
       
-      if (phostname != NULL)
-        {
-        free(phostname);
-        phostname = NULL;
-        }
-      
       return(PBSE_UNKNODE);
       }
     
@@ -1033,12 +644,6 @@ static int process_host_name_part(
     
     if (tmp == NULL)
       {
-      if (phostname != NULL)
-        {
-        free(phostname);
-        phostname = NULL;
-        }
-
       return(PBSE_SYSTEM);
       }
 
@@ -1058,8 +663,6 @@ static int process_host_name_part(
     (*pul)[totalipcount] = 0;  /* zero-term array ip addrs */
     }  /* END for (hindex) */
   
-  *pname = phostname;   /* return node name     */
-
   return(PBSE_NONE);    /* function successful      */
   }  /* END process_host_name_part() */
 
@@ -1180,13 +783,13 @@ int update_nodes_file(
 
     /* if number of subnodes is gt 1, write that; if only one,   */
     /* don't write to maintain compatability with old style file */
-    if (np->nd_slots.get_total_execution_slots() > 1)
-      fprintf(nin, " %s=%d", ATTR_NODE_np, np->nd_slots.get_total_execution_slots());
+    if (np->get_execution_slot_count() > 1)
+      fprintf(nin, " %s=%d", ATTR_NODE_np, np->get_execution_slot_count());
 
     /* if number of gpus is gt 0, write that; if none,   */
     /* don't write to maintain compatability with old style file */
-    if (np->nd_ngpus > 0)
-      fprintf(nin, " %s=%d", ATTR_NODE_gpus, np->nd_ngpus);
+    if (np->gpu_count() > 0)
+      fprintf(nin, " %s=%d", ATTR_NODE_gpus, np->gpu_count());
 
     /* write out the numa attributes if needed */
     if (np->num_node_boards > 0)
@@ -1201,11 +804,11 @@ int update_nodes_file(
       fprintf(nin, " %s=%s", ATTR_NODE_numa_str, np->numa_str);
 
     /* write out the ports if needed */
-    if (np->nd_mom_port != PBS_MOM_SERVICE_PORT)
-      fprintf(nin, " %s=%d", ATTR_NODE_mom_port, np->nd_mom_port);
+    if (np->get_service_port() != PBS_MOM_SERVICE_PORT)
+      fprintf(nin, " %s=%d", ATTR_NODE_mom_port, np->get_service_port());
 
-    if (np->nd_mom_rm_port != PBS_MANAGER_SERVICE_PORT)
-      fprintf(nin, " %s=%d", ATTR_NODE_mom_rm_port, np->nd_mom_rm_port);
+    if (np->get_manager_port() != PBS_MANAGER_SERVICE_PORT)
+      fprintf(nin, " %s=%d", ATTR_NODE_mom_rm_port, np->get_manager_port());
 
     if ((np->gpu_str != NULL) &&
         (np->gpu_str[0] != '\0'))
@@ -1327,7 +930,7 @@ void recompute_ntype_cnts(void)
     while ((pnode = next_node(&allnodes, pnode, &iter)) != NULL)
       {
       /* count normally */
-      svr_loc_clnodes += pnode->nd_slots.get_total_execution_slots();
+      svr_loc_clnodes += pnode->get_execution_slot_count();
       }
 
     svr_clnodes = svr_loc_clnodes;
@@ -1366,87 +969,6 @@ struct prop *init_prop(
 
   return(pp);
   }  /* END init_prop() */
-
-
-
-
-/*
- * add_execution_slot - create a subnode entry and link to parent node
- *
- *  NOTE: pname arg must be a copy of prop list as it is linked directly in
- */
-
-int add_execution_slot(
-    
-  struct pbsnode *pnode)
-
-  {
-  if (pnode == NULL)
-    return(PBSE_RMBADPARAM);
-  
-  pnode->nd_slots.add_execution_slot();
-
-  if ((pnode->nd_state & INUSE_JOB) != 0)
-    pnode->nd_state &= ~INUSE_JOB;
-
-  return(PBSE_NONE);
-  }  /* END add_execution_slot() */
-
-
-
-
-int create_a_gpusubnode(
-    
-  struct pbsnode *pnode)
-
-  {
-  int rc = PBSE_NONE;
-  struct gpusubn *tmp = NULL;
-
-  if (pnode == NULL)
-    {
-    rc = PBSE_BAD_PARAMETER;
-    log_err(rc, __func__, "NULL pbsnode pointer input");
-    return(rc);
-    }
-  
-  tmp = (struct gpusubn *)calloc((1 + pnode->nd_ngpus), sizeof(struct gpusubn));
-
-  if (tmp == NULL)
-    {
-    rc = PBSE_MEM_MALLOC;
-    log_err(rc,__func__,
-        (char *)"Couldn't allocate memory for a subnode. EPIC FAILURE");
-    return(rc);
-    }
-
-  if (pnode->nd_ngpus > 0)
-    {
-    /* copy old memory to the new place */
-    memcpy(tmp,pnode->nd_gpusn,(sizeof(struct gpusubn) * pnode->nd_ngpus));
-    }
-
-  /* now use the new memory */
-  free(pnode->nd_gpusn);
-  pnode->nd_gpusn = tmp;
-
-  /* initialize the node */
-  pnode->nd_gpus_real = FALSE;
-  pnode->nd_gpusn[pnode->nd_ngpus].inuse = FALSE;
-  pnode->nd_gpusn[pnode->nd_ngpus].job_internal_id = -1;
-  pnode->nd_gpusn[pnode->nd_ngpus].mode = gpu_normal;
-  pnode->nd_gpusn[pnode->nd_ngpus].state = gpu_unallocated;
-  pnode->nd_gpusn[pnode->nd_ngpus].flag = okay;
-  pnode->nd_gpusn[pnode->nd_ngpus].index = pnode->nd_ngpus;
-  pnode->nd_gpusn[pnode->nd_ngpus].gpuid = NULL;
-
-  /* increment the number of gpu subnodes and gpus free */
-  pnode->nd_ngpus++;
-  pnode->nd_ngpus_free++;
-
-  return(rc);
-  } /* END create_a_gpusubnode() */
-
 
 
 
@@ -1581,7 +1103,6 @@ static int setup_node_boards(
   char            pname[MAX_LINE];
   char           *np_ptr = NULL;
   char           *gp_ptr = NULL;
-  char           *allocd_name;
   int             np;
   int             gpus;
   int             rc = PBSE_NONE;
@@ -1610,7 +1131,7 @@ static int setup_node_boards(
     np_ptr = pnode->numa_str;
     }
   else
-    np = pnode->nd_slots.get_total_execution_slots() / pnode->num_node_boards;
+    np = pnode->get_execution_slot_count() / pnode->num_node_boards;
 
   /* determine the number of gpus per node */
   if (pnode->gpu_str != NULL)
@@ -1619,7 +1140,7 @@ static int setup_node_boards(
     read_val_and_advance(&gpus,&gp_ptr);
     }
   else
-    gpus = pnode->nd_ngpus / pnode->num_node_boards;
+    gpus = pnode->gpu_count() / pnode->num_node_boards;
 
   for (i = 0; i < pnode->num_node_boards; i++)
     {
@@ -1627,27 +1148,17 @@ static int setup_node_boards(
     snprintf(pname,sizeof(pname),"%s-%d",
       pnode->get_name(), i);
 
-    allocd_name = strdup(pname);
-    if (allocd_name == NULL)
-      {
-      /* no memory error */
-      log_err(PBSE_SYSTEM, __func__, "Cannot allocate memory for node name\n");
-      free(pn);
-      return(PBSE_SYSTEM);
-      }
-
-    pn = new pbsnode(allocd_name, pul, true);
+    pn = new pbsnode(pname, pul, true);
 
     if (strlen(pn->get_error()) > 0)
       {
       delete pn;
-      free(allocd_name);
       return(rc);
       }
 
     /* make sure the server communicates on the correct ports */
-    pn->nd_mom_port = pnode->nd_mom_port;
-    pn->nd_mom_rm_port = pnode->nd_mom_rm_port;
+    pn->set_service_port(pnode->get_service_port());
+    pn->set_manager_port(pnode->get_manager_port());
     memcpy(&pn->nd_sock_addr, &pnode->nd_sock_addr, sizeof(pn->nd_sock_addr));
 
     /* update the np string pointer */
@@ -1656,12 +1167,12 @@ static int setup_node_boards(
 
     /* create the subnodes for this node */
     for (j = 0; j < np; j++)
-      add_execution_slot(pn);
+      pn->add_execution_slot();
 
     /* create the gpu subnodes for this node */
     for (j = 0; j < gpus; j++)
       {
-      if (create_a_gpusubnode(pn) != PBSE_NONE)
+      if (pn->create_a_gpusubnode() != PBSE_NONE)
         {
         /* ERROR */
         free(pn);
@@ -1677,7 +1188,7 @@ static int setup_node_boards(
 
     /* add the node to the private tree */
     pnode->node_boards = AVL_insert(i,
-        pn->nd_mom_port,
+        pn->get_service_port(),
         pn,
         pnode->node_boards);
 
@@ -1840,10 +1351,10 @@ int create_pbs_node(
     return(rc);
     }
 
+  pname = objname;
+
   if (pul == NULL)
     {
-    free(pname);
-
     snprintf(log_buf, LOCAL_LOG_BUF_SIZE, 
       "no valid IP addresses found for '%s' - check name service",
       objname);
@@ -1856,8 +1367,7 @@ int create_pbs_node(
   if ((pnode = find_nodebyname(pname)) != NULL)
     {
     pnode->unlock_node(__func__, NULL, LOGLEVEL);
-
-    free(pname);
+    
     free(pul);
 
     return(PBSE_NODEEXIST);
@@ -1877,7 +1387,7 @@ int create_pbs_node(
   try
     {
     /* All nodes have at least one execution slot */
-    add_execution_slot(pnode);
+    pnode->add_execution_slot();
 
     rc = mgr_set_node_attr(
            pnode,
@@ -1891,7 +1401,7 @@ int create_pbs_node(
 
     if (rc != 0)
       {
-      effective_node_delete(&pnode);
+      delete pnode;
       
       return(rc);
       }
@@ -1920,7 +1430,7 @@ int create_pbs_node(
       }
     
     addr = pul[i];
-    ipaddrs = AVL_insert(addr, pnode->nd_mom_port, pnode, ipaddrs);
+    ipaddrs = AVL_insert(addr, pnode->get_service_port(), pnode, ipaddrs);
     }  /* END for (i) */
 
   if ((rc = setup_node_boards(pnode,pul)) != PBSE_NONE)
@@ -2534,52 +2044,6 @@ errtoken2:
 
 
 /*
- * delete_a_subnode - mark a (last) single subnode entry as deleted
- */
-
-void delete_a_subnode(
-
-  struct pbsnode *pnode)
-
-  {
-  pnode->nd_slots.remove_execution_slot();
-  return;
-  }  /* END delete_a_subnode() */
-
-
-
-
-/*
- * deletes the last gpu subnode
- * frees the node and decrements the number to adjust
- */
-static void delete_a_gpusubnode(
-
-  struct pbsnode *pnode)
-
-  {
-  struct gpusubn *tmp = pnode->nd_gpusn + (pnode->nd_ngpus - 1);
-
-  if (pnode->nd_ngpus < 1)
-    {
-    /* ERROR, can't free non-existent subnodes */
-    return;
-    }
-
-  if (tmp->inuse == FALSE)
-    pnode->nd_ngpus_free--;
-
-  /* decrement the number of gpu subnodes */
-  pnode->nd_ngpus--;
-
-  /* DONE */
-  } /* END delete_a_gpusubnode() */
-
-
-
-
-
-/*
  * node_np_action - action routine for node's np pbs_attribute
  */
 
@@ -2591,8 +2055,6 @@ int node_np_action(
   
   {
   struct pbsnode *pnode = (struct pbsnode *)pobj;
-  short  old_np;
-  short  new_np;
 
   if (new_attr == NULL)
     {
@@ -2610,38 +2072,23 @@ int node_np_action(
     {
 
     case ATR_ACTION_NEW:
-      new_attr->at_val.at_long = pnode->nd_slots.get_total_execution_slots();
+
+      new_attr->at_val.at_long = pnode->get_execution_slot_count();
+
       break;
 
     case ATR_ACTION_ALTER:
-      old_np = pnode->nd_slots.get_total_execution_slots();
-      new_np = (short)new_attr->at_val.at_long;
 
-      if (new_np <= 0)
-        return PBSE_BADATVAL;
-
-      while (new_np != old_np)
-        {
-
-        if (new_np < old_np)
-          {
-          delete_a_subnode(pnode);
-          old_np--;
-          }
-        else
-          {
-          add_execution_slot(pnode);
-          old_np++;
-          }
-        }
+      pnode->set_execution_slot_count(new_attr->at_val.at_long);
 
       break;
+
     default:
       log_err(-1,__func__, "unexpected action mode");
       return(-1);
     }
 
-  return 0;
+  return(PBSE_NONE);
   } /* END node_np_action */
 
 
@@ -2678,11 +2125,11 @@ int node_mom_port_action(
     {
 
     case ATR_ACTION_NEW:
-      new_attr->at_val.at_long = pnode->nd_mom_port;
+      new_attr->at_val.at_long = pnode->get_service_port();
       break;
 
     case ATR_ACTION_ALTER:
-      pnode->nd_mom_port = new_attr->at_val.at_long;
+      pnode->set_service_port(new_attr->at_val.at_long);
       break;
 
     default:
@@ -2725,11 +2172,11 @@ int node_mom_rm_port_action(
     {
 
     case ATR_ACTION_NEW:
-      new_attr->at_val.at_long = pnode->nd_mom_rm_port;
+      new_attr->at_val.at_long = pnode->get_manager_port();
       break;
 
     case ATR_ACTION_ALTER:
-      pnode->nd_mom_rm_port = new_attr->at_val.at_long;
+      pnode->set_manager_port(new_attr->at_val.at_long);
       break;
 
     default:
@@ -2750,8 +2197,6 @@ int node_gpus_action(
 
   {
   struct pbsnode *np = (struct pbsnode *)pnode;
-  int             old_gp;
-  int             new_gp;
   int             rc = 0;
 
   if (new_attr == NULL)
@@ -2771,30 +2216,12 @@ int node_gpus_action(
   switch (actmode)
     {
     case ATR_ACTION_NEW:
-      new_attr->at_val.at_long = np->nd_ngpus;
+      new_attr->at_val.at_long = np->gpu_count();
       break;
 
     case ATR_ACTION_ALTER:
-      old_gp = np->nd_ngpus;
-      new_gp = new_attr->at_val.at_long;
 
-      if (new_gp <= 0)
-        return PBSE_BADATVAL;
-
-      while (new_gp != old_gp)
-        {
-
-        if (new_gp < old_gp)
-          {
-          delete_a_gpusubnode((struct pbsnode *)pnode);
-          old_gp--;
-          }
-        else
-          {
-          create_a_gpusubnode((struct pbsnode *)pnode);
-          old_gp++;
-          }
-        }
+      rc = np->set_gpu_count(new_attr->at_val.at_long);
 
       break;
 
@@ -2807,7 +2234,6 @@ int node_gpus_action(
 
 
 
-
 int node_mics_action(
 
   pbs_attribute *new_attr,
@@ -2816,7 +2242,6 @@ int node_mics_action(
 
   {
   struct pbsnode *np = (struct pbsnode *)pnode;
-  int             old_mics;
   int             new_mics;
   int             rc = 0;
 
@@ -2824,44 +2249,19 @@ int node_mics_action(
     {
     case ATR_ACTION_NEW:
 
-      new_attr->at_val.at_long = np->nd_nmics;
+      new_attr->at_val.at_long = np->get_mic_count();
 
       break;
 
     case ATR_ACTION_ALTER:
 
-      old_mics = np->nd_nmics;
       new_mics = new_attr->at_val.at_long;
 
       if (new_mics <= 0)
         return(PBSE_BADATVAL);
 
-      np->nd_nmics = new_mics;
-
-      if (new_mics > old_mics)
-        {
-        np->nd_nmics_free += new_mics - old_mics;
-        np->nd_nmics = new_mics;
-
-        if (new_mics > np->nd_nmics_alloced)
-          {
-          struct jobinfo *tmp = (struct jobinfo *)calloc(new_mics, sizeof(struct jobinfo));
-
-          if (tmp == NULL)
-            return(ENOMEM);
-
-          memcpy(tmp, np->nd_micjobs, sizeof(struct jobinfo) * np->nd_nmics_alloced);
-          free(np->nd_micjobs);
-          np->nd_micjobs = tmp;
-
-          
-          for (int i = np->nd_nmics_alloced; i < new_mics; i++)
-            np->nd_micjobs[i].internal_job_id = -1;
-
-          np->nd_nmics_alloced = new_mics;
-          }
-        }
-
+      np->set_mic_count(new_mics);
+        
       break;
 
     default:
@@ -2870,7 +2270,6 @@ int node_mics_action(
 
   return(rc);
   } /* END node_mics_action() */
-
 
 
 
@@ -2883,7 +2282,7 @@ int node_numa_action(
   {
 
   struct pbsnode *np = (struct pbsnode *)pnode;
-  int rc = 0;
+  int             rc = 0;
 
   if (new_attr == NULL)
     {
@@ -3070,7 +2469,6 @@ int create_partial_pbs_node(
   svrattrl        *plist = NULL;
   struct pbsnode  *pnode = NULL;
   u_long          *pul = NULL;
-  char            *pname = NULL;
 
   if (nodename == NULL)
     {
@@ -3094,14 +2492,12 @@ int create_partial_pbs_node(
 
   memset(pul, 0, sizeof(u_long) * 2);
   *pul = addr;
-  pname = strdup(nodename);
 
-  pnode = new pbsnode(pname, pul, false);
+  pnode = new pbsnode(nodename, pul, false);
 
   if (strlen(pnode->get_error()) > 0)
     {
     free(pul);
-    free(pname);
     delete pnode;
 
     return(PBSE_SYSTEM);
@@ -3109,7 +2505,7 @@ int create_partial_pbs_node(
 
   /* create and initialize the first subnode to go with the parent node */
 
-  add_execution_slot(pnode);
+  pnode->add_execution_slot();
 
   rc = mgr_set_node_attr(
          pnode,
@@ -3124,21 +2520,19 @@ int create_partial_pbs_node(
   if (rc != 0)
     {
     pnode->lock_node(__func__, NULL, LOGLEVEL);
-    effective_node_delete(&pnode);
+    delete pnode;
 
     return(rc);
     }
 
   insert_node(&allnodes,pnode);
-  AVL_insert(addr, pnode->nd_mom_port, pnode, ipaddrs);
+  AVL_insert(addr, pnode->get_service_port(), pnode, ipaddrs);
   
   svr_totnodes++;
   recompute_ntype_cnts();
 
   return(PBSE_NONE);     /*create completely successful*/
   } /* END create_partial_pbs_node */
-
-
 
 
 
@@ -3170,7 +2564,7 @@ static struct pbsnode *get_my_next_node_board(
   struct pbsnode *numa;
   
   iter->numa_index++;
-  numa = AVL_find(iter->numa_index, pnode->nd_mom_port, pnode->node_boards);
+  numa = AVL_find(iter->numa_index, pnode->get_service_port(), pnode->node_boards);
   
   pnode->unlock_node(__func__, "pnode", LOGLEVEL);
   if (numa != NULL)
@@ -3543,7 +2937,7 @@ void *send_hierarchy_threadtask(
     {
     char nodename[MAXLINE];
     snprintf(nodename, sizeof(nodename), "%s", pnode->get_name());
-    port = pnode->nd_mom_rm_port;
+    port = pnode->get_manager_port();
     pnode->unlock_node(__func__, NULL, LOGLEVEL);
 
     if (send_hierarchy(nodename, port) != PBSE_NONE)

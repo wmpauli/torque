@@ -143,7 +143,6 @@ extern pthread_mutex_t *netrates_mutex;
 
 int status_job(job *, struct batch_request *, svrattrl *, tlist_head *, bool, int *);
 int status_attrib(svrattrl *, attribute_def *, pbs_attribute *, int, int, tlist_head *, bool, int *, int);
-extern int  hasprop(struct pbsnode *, struct prop *);
 extern void rel_resc(job*);
 
 /* The following private support functions are included */
@@ -1293,7 +1292,7 @@ int get_numa_statuses(
 
   for (i = 0; i < pnode->num_node_boards; i++)
     {
-    pn = AVL_find(i,pnode->nd_mom_port,pnode->node_boards);
+    pn = AVL_find(i, pnode->get_service_port(), pnode->node_boards);
 
     if (pn == NULL)
       continue;
@@ -1411,7 +1410,7 @@ int req_stat_node(
     while ((pnode = next_host(&allnodes,&iter,NULL)) != NULL)
       {
       if ((type == 2) && 
-          (!hasprop(pnode, &props)))
+          (!pnode->has_prop(&props)))
         {
         pnode->unlock_node(__func__, "type != 0, next_host", LOGLEVEL);
         continue;

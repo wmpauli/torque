@@ -104,8 +104,6 @@ extern char             server_name[];
 
 
 int is_gpustat_get(struct pbsnode *np, unsigned int &i, std::vector<std::string> &status_info);
-void clear_nvidia_gpus(struct pbsnode *np);
-int  gpu_entry_by_id(struct pbsnode *pnode, const char *gpuid, int get_empty);
 int gpu_has_job(struct pbsnode *pnode, int gpuid);
 
 
@@ -196,28 +194,8 @@ int process_mic_status(
 
   rc = save_single_mic_status(single_mic_status, &temp);
 
-  if (mic_count > pnode->nd_nmics)
-    {
-    pnode->nd_nmics_free += mic_count - pnode->nd_nmics;
-    pnode->nd_nmics = mic_count;
-
-    if (mic_count > pnode->nd_nmics_alloced)
-      {
-      struct jobinfo *tmp = (struct jobinfo *)calloc(mic_count, sizeof(struct jobinfo));
-      
-      if (tmp == NULL)
-        return(ENOMEM);
-
-      memcpy(tmp, pnode->nd_micjobs, sizeof(struct jobinfo) * pnode->nd_nmics_alloced);
-      free(pnode->nd_micjobs);
-      pnode->nd_micjobs = tmp;
-          
-      for (int j = pnode->nd_nmics_alloced; j < mic_count; j++)
-        pnode->nd_micjobs[j].internal_job_id = -1;
-
-      pnode->nd_nmics_alloced = mic_count;
-      }
-    }
+  if (mic_count > pnode->get_mic_count())
+    pnode->set_mic_count(mic_count);
 
   move_past_mic_status(i, status_info);
   
@@ -261,7 +239,7 @@ struct pbsnode *get_numa_from_str(
   numa_id = str + strlen(NUMA_KEYWORD);
   numa_index = atoi(numa_id);
   
-  numa = AVL_find(numa_index, np->nd_mom_port, np->node_boards);
+  numa = AVL_find(numa_index, np->get_service_port(), np->node_boards);
   
   if (numa == NULL)
     {
@@ -366,7 +344,7 @@ int handle_auto_np(
   if ((node_attr_def + ND_ATR_np)->at_decode(&nattr, ATTR_NODE_np, NULL, str + 6, 0) == 0)
     {
     /* ... and if MOM's ncpus is different than our np... */
-    if (nattr.at_val.at_long != np->nd_slots.get_total_execution_slots())
+    if (nattr.at_val.at_long != np->get_execution_slot_count())
       {
       /* ... then we do the defined magic to create new subnodes */
       (node_attr_def + ND_ATR_np)->at_action(&nattr, (void *)np, ATR_ACTION_ALTER);
@@ -403,7 +381,7 @@ void update_job_data(
   char   log_buf[LOCAL_LOG_BUF_SIZE];
 
   job   *pjob = NULL;
-  int    on_node = FALSE;
+  bool   on_node = false;
 
   if ((jobstring_in == NULL) || (!isdigit(*jobstring_in)))
     {
@@ -423,7 +401,7 @@ void update_job_data(
     {
     if (strstr(jobidstr, server_name) != NULL)
       {
-      on_node = is_job_on_node(np, job_mapper.get_id(jobidstr));
+      on_node = np->is_job_on_node(job_mapper.get_id(jobidstr));
       pjob = svr_find_job(jobidstr, TRUE);
 
       if (pjob != NULL)
@@ -466,7 +444,7 @@ void update_job_data(
           }
         }
       
-      if (on_node == FALSE)
+      if (on_node == false)
         {
         /* job is reported by mom but server has no record of job */
         sprintf(log_buf, "stray job %s reported on %s", jobidstr, np->get_name());
@@ -533,15 +511,15 @@ int process_state_str(
 
   if (!strncmp(str, "state=down", 10))
     {
-    update_node_state(np, INUSE_DOWN);
+    np->update_node_state(INUSE_DOWN);
     }
   else if (!strncmp(str, "state=busy", 10))
     {
-    update_node_state(np, INUSE_BUSY);
+    np->update_node_state(INUSE_BUSY);
     }
   else if (!strncmp(str, "state=free", 10))
     {
-    update_node_state(np, INUSE_FREE);
+    np->update_node_state(INUSE_FREE);
     }
   else
     {
@@ -551,7 +529,7 @@ int process_state_str(
     
     log_err(-1, __func__, log_buf);
     
-    update_node_state(np, INUSE_UNKNOWN);
+    np->update_node_state(INUSE_UNKNOWN);
     }
   
   if (LOGLEVEL >= 9)
@@ -738,7 +716,7 @@ int process_status_info(
       send_hello = true;
       
       /* reset gpu data in case mom reconnects with changed gpus */
-      clear_nvidia_gpus(current);
+      current->clear_nvidia_gpus();
       }
     else if ((rc = decode_arst(&temp, NULL, NULL, str, 0)) != PBSE_NONE)
       {
@@ -764,7 +742,7 @@ int process_status_info(
       if ((!strncmp(str, "message=ERROR", 13)) &&
           (down_on_error == TRUE))
         {
-        update_node_state(current, INUSE_DOWN);
+        current->update_node_state(INUSE_DOWN);
         dont_change_state = TRUE;
         }
       }
@@ -886,7 +864,7 @@ int is_gpustat_get(
     }
 
   /* save current gpu count for node */
-  startgpucnt = np->nd_ngpus;
+  startgpucnt = np->gpu_count();
 
   /*
    *  Before filling the "temp" pbs_attribute, initialize it.
@@ -972,7 +950,7 @@ int is_gpustat_get(
        * different orders since the nvidia order may change upon mom's reboot
        */
 
-      gpuidx = gpu_entry_by_id(np, gpuid, TRUE);
+      gpuidx = np->gpu_entry_by_id(gpuid, true);
       if (gpuidx == -1)
         {
         /*
@@ -1002,7 +980,7 @@ int is_gpustat_get(
       np->nd_gpusn[gpuidx].driver_ver = drv_ver;
 
       /* mark that this gpu node is not virtual */
-      np->nd_gpus_real = TRUE;
+      np->set_real_gpus();
       
       /*
        * if we have not filled in the gpu_id returned by the mom node
@@ -1141,7 +1119,7 @@ int is_gpustat_get(
 
   if (reportedgpucnt != startgpucnt)
     {
-    np->nd_ngpus = reportedgpucnt;
+    np->set_gpu_count(reportedgpucnt);
 
     /* update the nodes file */
     update_nodes_file(np);

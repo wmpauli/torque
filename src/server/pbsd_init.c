@@ -394,6 +394,7 @@ int SortPrioAscend(
   } /*END SortPrioAscend */
 
 
+
 void  update_default_np()
   
   {
@@ -407,8 +408,8 @@ void  update_default_np()
     {
     while ((pnode = next_host(&allnodes,&iter,NULL)) != NULL)
       {
-      while (pnode->nd_slots.get_total_execution_slots() < default_np)
-        add_execution_slot(pnode);
+      while (pnode->get_execution_slot_count() < default_np)
+        pnode->add_execution_slot();
       
       pnode->unlock_node(__func__, NULL, LOGLEVEL);
       }
@@ -419,6 +420,8 @@ void  update_default_np()
 
   return;
   } /* END update_default_np() */
+
+
 
 /* Add the server names from /var/spool/torque/server_name to the trusted hosts list. */
 
@@ -492,9 +495,9 @@ void make_default_hierarchy(std::vector<std::string>& hierarchy)
 
     level_ds += pnode->get_name();
 
-    if (PBS_MANAGER_SERVICE_PORT != pnode->nd_mom_rm_port)
+    if (PBS_MANAGER_SERVICE_PORT != pnode->get_manager_port())
       {
-      snprintf(buf, sizeof(buf), ":%d", (int)pnode->nd_mom_rm_port);
+      snprintf(buf, sizeof(buf), ":%d", (int)pnode->get_manager_port());
       level_ds += buf;
       }
 
@@ -607,7 +610,7 @@ void check_if_in_nodes_file(
       }
     }
 
-  rm_port = pnode->nd_mom_rm_port;
+  rm_port = pnode->get_manager_port();
     
   pnode->nd_in_hierarchy = TRUE;
 

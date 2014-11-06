@@ -101,9 +101,6 @@
 #include "pbs_nodes.h"
 #include "svr_connect.h" /* svr_connect, svr_disconnect_sock */
 
-/* External Functions */
-
-extern int gpu_entry_by_id(struct pbsnode *,const char *, int);
 
 /* Private Functions Local to this file */
 
@@ -131,8 +128,9 @@ int req_gpuctrl_svr(
   char   log_buf[LOCAL_LOG_BUF_SIZE+1];
   int    local_errno = 0;
   struct pbsnode *pnode = NULL;
-  int    gpuidx = -1;
   int    conn;
+
+  std::string err_msg;
 
   if ((preq->rq_perm &
        (ATR_DFLAG_MGWR | ATR_DFLAG_MGRD | ATR_DFLAG_OPRD | ATR_DFLAG_OPWR)) == 0)
@@ -149,6 +147,13 @@ int req_gpuctrl_svr(
   gpumode = preq->rq_ind.rq_gpuctrl.rq_gpumode;
   reset_perm = preq->rq_ind.rq_gpuctrl.rq_reset_perm;
   reset_vol = preq->rq_ind.rq_gpuctrl.rq_reset_vol;
+
+  /* validate that we have a real request */
+  if ((gpumode == -1) && (reset_perm == -1) && (reset_vol == -1))
+    {
+    req_reject(PBSE_UNKREQ, 0, preq, NULL, "Invalid action specified");
+    return(PBSE_UNKREQ);
+    }
 
   if (LOGLEVEL >= 7)
     {
@@ -185,44 +190,12 @@ int req_gpuctrl_svr(
     return rc;
     }
 
-  /* validate that the node has real gpus not virtual */
-
-  if (!pnode->nd_gpus_real)
+  if (pnode->can_set_gpu_mode(gpuid, gpumode, err_msg) == false)
     {
     rc = PBSE_UNKREQ;
-    req_reject(rc, 0, preq, NULL, "Not allowed for virtual gpus");
+    req_reject(rc, 0, preq, NULL, err_msg.c_str());
     pnode->unlock_node(__func__, NULL, LOGLEVEL);
-    return rc;
-    }
-
-  /* validate the gpuid exists */
-
-  if ((gpuidx = gpu_entry_by_id(pnode, gpuid, FALSE)) == -1)
-    {
-    rc = PBSE_UNKREQ;
-    req_reject(rc, 0, preq, NULL, "GPU ID does not exist on node");
-    pnode->unlock_node(__func__, NULL, LOGLEVEL);
-    return rc;
-    }
-
-  /* validate that we have a real request */
-
-  if ((gpumode == -1) && (reset_perm == -1) && (reset_vol == -1))
-    {
-    rc = PBSE_UNKREQ;
-    req_reject(rc, 0, preq, NULL, "No action specified");
-    pnode->unlock_node(__func__, NULL, LOGLEVEL);
-    return rc;
-    }
-
-  /* for mode changes validate the mode with the driver_version */
-
-  if ((pnode->nd_gpusn[gpuidx].driver_ver == 260) && (gpumode > 2))
-    {
-    rc = PBSE_UNKREQ;
-    req_reject(rc, 0, preq, NULL, "GPU driver version does not support mode 3");
-    pnode->unlock_node(__func__, NULL, LOGLEVEL);
-    return rc;
+    return(rc);
     }
 
   /* we need to relay request to the mom for processing */

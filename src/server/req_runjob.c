@@ -1947,8 +1947,8 @@ int set_job_exec_info(
 
   if (pnode != NULL)
     {
-    pjob->ji_qs.ji_un.ji_exect.ji_momport = pnode->nd_mom_port;
-    pjob->ji_qs.ji_un.ji_exect.ji_mom_rmport = pnode->nd_mom_rm_port;
+    pjob->ji_qs.ji_un.ji_exect.ji_momport = pnode->get_service_port();
+    pjob->ji_qs.ji_un.ji_exect.ji_mom_rmport = pnode->get_manager_port();
     memcpy(&hostaddr, &pnode->nd_sock_addr.sin_addr, sizeof(hostaddr));
     pjob->ji_qs.ji_un.ji_exect.ji_momaddr = ntohl(hostaddr.s_addr);
 
