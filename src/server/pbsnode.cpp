@@ -625,6 +625,35 @@ int pbsnode::lock_node(
     log_record(PBSEVENT_DEBUG, PBS_EVENTCLASS_NODE, __func__, err_msg);
     }
 
+
+/* We may need to add this functionality to lock node and unlock node
+int tmp_lock_node(
+
+  struct pbsnode *the_node,
+  const char     *id,
+  const char     *msg,
+  int             logging)
+  {
+  int rc = the_node->lock_node(id, msg, logging);
+  if (rc == PBSE_NONE)
+    {
+    the_node->nd_tmp_unlock_count--;
+    }
+  return(rc);
+  }
+
+
+int tmp_unlock_node(
+
+  struct pbsnode *the_node,
+  const char     *id,
+  const char     *msg,
+  int             logging)
+  {
+  the_node->nd_tmp_unlock_count++;
+  return(the_node->unlock_node(id, msg, logging));
+  } */
+
   return rc;
   } /* END lock_node() */
 

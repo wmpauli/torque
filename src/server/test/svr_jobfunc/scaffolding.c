@@ -217,7 +217,7 @@ pbs_queue *next_queue(all_queues *aq, all_queues_iterator *iter)
 
 int remove_job(all_jobs *aj, job *pjob)
   {
-  return(PBSE_JOB_RECYCLED);
+  return(PBSE_JOBNOTFOUND);
   }
 
 int set_jobexid(job *pjob, pbs_attribute *attrry, char *EMsg)
@@ -435,13 +435,19 @@ int encode_size(pbs_attribute *attr, tlist_head *phead, const char *atname, cons
   exit(1);
   }
 
-int pbsnode::unlock_node(const char *caller, const char *msg, int level)
+void log_ext(int i, char const* s, char const* s2, int i2)
   {
-  return(0);
   }
 
-int pbsnode::lock_node(const char *caller, const char *msg, int level)
+int csv_length(const char *csv_str)
   {
-  return(0);
+  fprintf(stderr, "The call to decode_tokens to be mocked!!\n");
+  exit(1);
+  }
+
+char *csv_nth(const char *csv_str, int n)
+  {
+  fprintf(stderr, "The call to decode_tokens to be mocked!!\n");
+  exit(1);
   }
 

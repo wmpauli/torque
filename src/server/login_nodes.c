@@ -136,6 +136,7 @@ struct pbsnode *check_node(
   if ((pnode->has_prop(needed) == TRUE) &&
       (pnode->get_execution_slot_free_count() - pnode->nd_np_to_be_used >= 1) &&
       ((pnode->nd_state & INUSE_DOWN) == 0) &&
+      ((pnode->nd_state & INUSE_NOT_READY) == 0) &&
       ((pnode->nd_state & INUSE_OFFLINE) == 0) &&
       (pnode->nd_power_state == POWER_STATE_RUNNING))
     return(pnode);
@@ -145,7 +146,6 @@ struct pbsnode *check_node(
     return(NULL);
     }
   } /* END check_node() */
-
 
 
 
@@ -228,7 +228,7 @@ struct pbsnode *get_next_login_node(
 
   {
   struct pbsnode *pnode = NULL;
-  int             node_fits = TRUE;
+  bool            node_fits = true;
 
   pthread_mutex_lock(logins.ln_mutex);
   login_node &ln = logins.nodes[logins.next_node];
@@ -240,20 +240,21 @@ struct pbsnode *get_next_login_node(
     {
     if (pnode->has_prop(needed) == FALSE)
       {
-      node_fits = FALSE;
+      node_fits = false;
       }
     }
   
   /* must have at least one execution slot available */
   if ((pnode->get_execution_slot_count() - pnode->nd_np_to_be_used < 1) ||
       ((pnode->nd_state & INUSE_DOWN) != 0) ||
+      ((pnode->nd_state & INUSE_NOT_READY) != 0) ||
       ((pnode->nd_state & INUSE_OFFLINE) != 0) ||
       (pnode->nd_power_state != POWER_STATE_RUNNING))
     {
-    node_fits = FALSE;
+    node_fits = false;
     }
   
-  if (node_fits == FALSE)
+  if (node_fits == false)
     {
     pnode->unlock_node(__func__, NULL, LOGLEVEL);
     pnode = find_fitting_node(needed);
