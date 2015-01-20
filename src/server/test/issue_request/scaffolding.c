@@ -13,6 +13,7 @@
 #include "list_link.h" /* tlist_head, list_link */
 #include "pbs_nodes.h"
 #include "log.h"
+#include "id_map.hpp"
 
 bool return_addr = true;
 bool local_connect = true;
@@ -505,4 +506,18 @@ batch_request *duplicate_request(batch_request *preq, int job_index)
       }
   
     return(preq_tmp);
+  }
+
+pbsnode::pbsnode()
+  {
+  }
+
+pbsnode::~pbsnode() 
+  
+  {
+  }
+
+int pbsnode::unlock_node(const char *caller, const char *msg, int level)
+  {
+  return(0);
   }

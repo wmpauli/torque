@@ -435,3 +435,13 @@ int encode_size(pbs_attribute *attr, tlist_head *phead, const char *atname, cons
   exit(1);
   }
 
+int pbsnode::unlock_node(const char *caller, const char *msg, int level)
+  {
+  return(0);
+  }
+
+int pbsnode::lock_node(const char *caller, const char *msg, int level)
+  {
+  return(0);
+  }
+

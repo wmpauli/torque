@@ -14,6 +14,8 @@
 #include "sched_cmds.h"
 #include "threadpool.h"
 #include "id_map.hpp"
+#include "pbs_nodes.h"
+#include "execution_slot_tracker.hpp"
 
 const char *text_name              = "text";
 const char *PJobSubState[10];
@@ -351,3 +353,18 @@ char *get_correct_jobname(const char *id)
   {
   return(strdup(id));
   }
+
+pbsnode::pbsnode() 
+  {
+  }
+
+pbsnode::~pbsnode() 
+  {
+  }
+
+int pbsnode::unlock_node(const char *caller, const char *msg, int level)
+  {
+  return(0);
+  }
+
+execution_slot_tracker::execution_slot_tracker() {}

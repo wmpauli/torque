@@ -15,7 +15,7 @@ const char *napali = "napali";
 const char *l11 =    "l11";
 
 int   remove_job_from_node(struct pbsnode *pnode, int internal_job_id);
-int   node_in_exechostlist(char *, char *);
+int   node_in_exechostlist(const char *, char *);
 char *get_next_exec_host(char **);
 int   job_should_be_killed(int, struct pbsnode *);
 int   check_for_node_type(complete_spec_data *, enum node_types);
@@ -108,42 +108,6 @@ START_TEST(populate_range_string_from_job_reservation_info_test)
 END_TEST
 
 
-START_TEST(node_is_spec_acceptable_test)
-  {
-  struct pbsnode   pnode;
-  single_spec_data spec;
-  int              eligible_nodes = 0;
-
-  memset(&pnode, 0, sizeof(pnode));
-  memset(&spec, 0, sizeof(spec));
-
-  spec.ppn = 10;
-
-  fail_unless(node_is_spec_acceptable(&pnode, &spec, NULL, &eligible_nodes, false) == false);
-  fail_unless(eligible_nodes == 0);
-
-  for (int i = 0; i < 10; i++)
-    pnode.nd_slots.add_execution_slot();
-    
-  pnode.nd_slots.mark_as_used(4);
-
-  fail_unless(node_is_spec_acceptable(&pnode, &spec, NULL, &eligible_nodes,false) == false);
-  fail_unless(eligible_nodes == 1);
-
-  eligible_nodes = 0;
-  pnode.nd_slots.mark_as_free(4);
-  pnode.nd_state |= INUSE_DOWN;  
-  fail_unless(node_is_spec_acceptable(&pnode, &spec, NULL, &eligible_nodes,false) == false);
-  fail_unless(eligible_nodes == 1);
-  
-  eligible_nodes = 0;
-  pnode.nd_state = INUSE_FREE;
-  fail_unless(node_is_spec_acceptable(&pnode, &spec, NULL, &eligible_nodes,false) == true);
-  fail_unless(eligible_nodes == 1);
-  }
-END_TEST
-
-
 START_TEST(process_as_node_list_test)
   {
   node_job_add_info naji;
@@ -225,25 +189,6 @@ START_TEST(remove_job_from_already_killed_list_test)
   }
 END_TEST
 
-START_TEST(remove_job_from_node_test)
-  {
-  job_usage_info jui(1);
-  struct pbsnode *pnode = (struct pbsnode *)calloc(1, sizeof(struct pbsnode));
-
-  for (int i = 0; i < 10; i++)
-    pnode->nd_slots.add_execution_slot();
-
-  pnode->nd_slots.reserve_execution_slots(6, jui.est);
-  pnode->nd_job_usages.push_back(jui);
-
-  fail_unless(pnode->nd_slots.get_number_free() == 4);
-
-  remove_job_from_node(pnode, 1);
-  fail_unless(pnode->nd_slots.get_number_free() == 10);
-  remove_job_from_node(pnode, 1);
-  fail_unless(pnode->nd_slots.get_number_free() == 10);
-  }
-END_TEST
 
 START_TEST(get_next_exec_host_test)
   {
@@ -279,48 +224,48 @@ END_TEST
 
 START_TEST(sync_node_jobs_with_moms_test)
   {
-  struct pbsnode *pnode = (struct pbsnode *)calloc(1, sizeof(struct pbsnode));
+  struct pbsnode *pnode = new pbsnode();
   extern bool     job_mode;
 
   job_mode = true;
   for (int i = 0; i < 9; i++)
-    pnode->nd_slots.add_execution_slot();
+    pnode->add_execution_slot();
 
   /* Job #1 */
   job_usage_info jui(1);
-  pnode->nd_slots.reserve_execution_slots(2, jui.est);
+  pnode->reserve_execution_slots(2, jui.est);
   pnode->nd_job_usages.push_back(jui);
 
   /* Job #2 */
   job_usage_info jui2(2);
-  pnode->nd_slots.reserve_execution_slots(4, jui2.est);
+  pnode->reserve_execution_slots(4, jui2.est);
   pnode->nd_job_usages.push_back(jui2);
   
   job_usage_info jui3(3);
-  pnode->nd_slots.reserve_execution_slots(3, jui3.est);
+  pnode->reserve_execution_slots(3, jui3.est);
   pnode->nd_job_usages.push_back(jui3);
 
   /* node is fully allocated for the 3 jobs above */
-  fail_unless(pnode->nd_slots.get_number_free() == 0);
+  fail_unless(pnode->get_execution_slot_free_count() == 0, "count %d", pnode->get_execution_slot_free_count());
 
   /* No jobs to be cleaned from the node */
   sync_node_jobs_with_moms(pnode, "1.lei.ac 2.lei.ac 3.lei.ac");
-  fail_unless(pnode->nd_slots.get_number_free() == 0);
+  fail_unless(pnode->get_execution_slot_free_count() == 0);
 
   /* Clean the 2nd job from the node */
   sync_node_jobs_with_moms(pnode, "1.lei.ac 3.lei.ac");
-  fail_unless(pnode->nd_slots.get_number_free() == 4);
+  fail_unless(pnode->get_execution_slot_free_count() == 4);
 
   /* Clean all jobs from the node */
   sync_node_jobs_with_moms(pnode, "");
-  fail_unless(pnode->nd_slots.get_number_free() == 9);
+  fail_unless(pnode->get_execution_slot_free_count() == 9);
 
   /* This job should not be clean as svr_find_job should find it */
   job_usage_info jui4(4);
-  pnode->nd_slots.reserve_execution_slots(3, jui4.est);
+  pnode->reserve_execution_slots(3, jui4.est);
   pnode->nd_job_usages.push_back(jui4);
   sync_node_jobs_with_moms(pnode, "");
-  fail_unless(pnode->nd_slots.get_number_free() == 6);
+  fail_unless(pnode->get_execution_slot_free_count() == 6);
   job_mode = false;
   }
 END_TEST
@@ -332,10 +277,9 @@ START_TEST(job_should_be_killed_test)
   struct pbsnode pnode;
   struct jobinfo jinfo;
 
-  memset(&pnode, 0, sizeof(pnode));
   memset(&jinfo, 0, sizeof(jinfo));
 
-  pnode.nd_name = (char *)"tom";
+  pnode.set_name("tom");
   jinfo.internal_job_id = 1;
 
   fail_unless(job_should_be_killed(2, &pnode) == true, "non-existent job shouldn't be on node");
@@ -418,36 +362,28 @@ START_TEST(check_node_order_test)
   memset(&req,0,sizeof(single_spec_data));
   pBase->node_id = -1;
 
-  memset(&node,0,sizeof(struct pbsnode));
-  node.nd_id = 0;
+  node.set_node_id(0);
   fail_unless(save_node_for_adding(pBase,&node,&req,4,0,6) == PBSE_NONE);
 
-  memset(&node,0,sizeof(struct pbsnode));
-  node.nd_id = 1;
+  node.set_node_id(1);
   fail_unless(save_node_for_adding(pBase,&node,&req,4,0,3) == PBSE_NONE);
 
-  memset(&node,0,sizeof(struct pbsnode));
-  node.nd_id = 2;
+  node.set_node_id(2);
   fail_unless(save_node_for_adding(pBase,&node,&req,4,0,11) == PBSE_NONE);
 
-  memset(&node,0,sizeof(struct pbsnode));
-  node.nd_id = 3;
+  node.set_node_id(3);
   fail_unless(save_node_for_adding(pBase,&node,&req,4,0,1) == PBSE_NONE);
 
-  memset(&node,0,sizeof(struct pbsnode));
-  node.nd_id = 4;
+  node.set_node_id(4);
   fail_unless(save_node_for_adding(pBase,&node,&req,4,0,15) == PBSE_NONE);
 
-  memset(&node,0,sizeof(struct pbsnode));
-  node.nd_id = 5;
+  node.set_node_id(5);
   fail_unless(save_node_for_adding(pBase,&node,&req,4,0,4) == PBSE_NONE);
 
-  memset(&node,0,sizeof(struct pbsnode));
-  node.nd_id = 6;
+  node.set_node_id(6);
   fail_unless(save_node_for_adding(pBase,&node,&req,4,0,10) == PBSE_NONE);
 
-  memset(&node,0,sizeof(struct pbsnode));
-  node.nd_id = 7;
+  node.set_node_id(7);
   fail_unless(save_node_for_adding(pBase,&node,&req,4,0,61) == PBSE_NONE);
 
   node_job_add_info *index = pBase;
@@ -479,13 +415,10 @@ START_TEST(record_external_node_test)
   char           buf[4096];
 
   memset(&pjob, 0, sizeof(pjob));
-  memset(&pnode1, 0, sizeof(pnode1));
-  memset(&pnode2, 0, sizeof(pnode2));
-  memset(&pnode3, 0, sizeof(pnode3));
 
-  pnode1.nd_name = (char *)"tom";
-  pnode2.nd_name = (char *)"bob";
-  pnode3.nd_name = (char *)"jim";
+  pnode1.set_name("tom");
+  pnode2.set_name("bob");
+  pnode3.set_name("jim");
 
   record_external_node(&pjob, &pnode1);
   snprintf(buf, sizeof(buf), "attr should be tom but is %s",
@@ -537,11 +470,9 @@ Suite *node_manager_suite(void)
 
   tc_core = tcase_create("record_external_node_test");
   tcase_add_test(tc_core, record_external_node_test);
-  tcase_add_test(tc_core, remove_job_from_node_test);
   tcase_add_test(tc_core, job_already_being_killed_test);
   tcase_add_test(tc_core, process_job_attribute_information_test);
   tcase_add_test(tc_core, process_as_node_list_test);
-  tcase_add_test(tc_core, node_is_spec_acceptable_test);
   tcase_add_test(tc_core, populate_range_string_from_job_reservation_info_test);
   tcase_add_test(tc_core, translate_job_reservation_info_to_stirng_test);
   suite_add_tcase(s, tc_core);

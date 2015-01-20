@@ -879,8 +879,10 @@ int decode_ntype(
  * After this, call free to remove the struct prop.
  */
 
-void
-free_prop_list(struct prop *prop)
+void free_prop_list(
+    
+  struct prop *prop)
+
   {
 
   struct prop *pp;

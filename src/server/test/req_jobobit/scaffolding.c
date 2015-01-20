@@ -340,3 +340,8 @@ const char *id_map::get_name(int id)
   }
 
 id_map job_mapper;
+
+int pbsnode::unlock_node(const char *caller, const char *msg, int level)
+  {
+  return(0);
+  }

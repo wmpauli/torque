@@ -962,9 +962,8 @@ struct prop *init_prop(
 
   if ((pp = (struct prop *)calloc(1, sizeof(struct prop))) != NULL)
     {
-    pp->name    = strdup(pname);
-    pp->mark    = 0;
-    pp->next    = 0;
+    if (pname != NULL)
+      pp->name    = strdup(pname);
     }
 
   return(pp);
@@ -1053,7 +1052,6 @@ int copy_properties(
 
 
 
-
 /*
  * accepts a string of numbers separated by commas. it places the 
  * number in val and advances the string to the next number past the comma
@@ -1080,135 +1078,6 @@ int read_val_and_advance(
 
   return(PBSE_NONE);
   } /* END read_val_and_advance() */
-
-
-
-
-
-/* creates the private numa nodes on this node 
- *
- * @param pnode - the node that will house the numa nodes
- *
- * @return 0 on success, -1 on failure
- */
-static int setup_node_boards(
-
-  struct pbsnode *pnode,
-  u_long         *pul)
-
-  {
-  int             i;
-  int             j;
-  struct pbsnode *pn;
-  char            pname[MAX_LINE];
-  char           *np_ptr = NULL;
-  char           *gp_ptr = NULL;
-  int             np;
-  int             gpus;
-  int             rc = PBSE_NONE;
-
-  char            log_buf[LOCAL_LOG_BUF_SIZE];
-
-  if (pnode == NULL)
-    {
-    rc = PBSE_BAD_PARAMETER;
-    log_err(rc, __func__, "NULL input pbsnode poiner");
-    return(rc);
-    }
-
-  pnode->parent = NULL;
-
-  /* if this isn't a numa node, return no error */
-  if ((pnode->num_node_boards == 0) &&
-      (pnode->numa_str == NULL))
-    {
-    return(PBSE_NONE);
-    }
-
-  /* determine the number of cores per node */
-  if (pnode->numa_str != NULL)
-    {
-    np_ptr = pnode->numa_str;
-    }
-  else
-    np = pnode->get_execution_slot_count() / pnode->num_node_boards;
-
-  /* determine the number of gpus per node */
-  if (pnode->gpu_str != NULL)
-    {
-    gp_ptr = pnode->gpu_str;
-    read_val_and_advance(&gpus,&gp_ptr);
-    }
-  else
-    gpus = pnode->gpu_count() / pnode->num_node_boards;
-
-  for (i = 0; i < pnode->num_node_boards; i++)
-    {
-    /* each numa node just has a number for a name */
-    snprintf(pname,sizeof(pname),"%s-%d",
-      pnode->get_name(), i);
-
-    pn = new pbsnode(pname, pul, true);
-
-    if (strlen(pn->get_error()) > 0)
-      {
-      delete pn;
-      return(rc);
-      }
-
-    /* make sure the server communicates on the correct ports */
-    pn->set_service_port(pnode->get_service_port());
-    pn->set_manager_port(pnode->get_manager_port());
-    memcpy(&pn->nd_sock_addr, &pnode->nd_sock_addr, sizeof(pn->nd_sock_addr));
-
-    /* update the np string pointer */
-    if (np_ptr != NULL)
-      read_val_and_advance(&np,&np_ptr);
-
-    /* create the subnodes for this node */
-    for (j = 0; j < np; j++)
-      pn->add_execution_slot();
-
-    /* create the gpu subnodes for this node */
-    for (j = 0; j < gpus; j++)
-      {
-      if (pn->create_a_gpusubnode() != PBSE_NONE)
-        {
-        /* ERROR */
-        free(pn);
-        return(PBSE_SYSTEM);
-        }
-      }
-
-    /* update the gpu string pointer */
-    if (gp_ptr != NULL)
-      read_val_and_advance(&gpus,&gp_ptr);
-
-    copy_properties(pn, pnode);
-
-    /* add the node to the private tree */
-    pnode->node_boards = AVL_insert(i,
-        pn->get_service_port(),
-        pn,
-        pnode->node_boards);
-
-    /* set my parent node pointer */
-    pn->parent = pnode;
-    } /* END for each node_board */
-
-  if (LOGLEVEL >= 3)
-    {
-    snprintf(log_buf,sizeof(log_buf),
-      "Successfully created %d numa nodes for node %s\n",
-      pnode->num_node_boards,
-      pnode->get_name());
-
-    log_event(PBSEVENT_SYSTEM, PBS_EVENTCLASS_NODE, __func__, log_buf);
-    }
-
-  return(PBSE_NONE);
-  } /* END setup_node_boards() */
-
 
 
 
@@ -1253,8 +1122,6 @@ static void recheck_for_node(
   free(ptask);
   return;
   } /* END recheck_for_node() */
-
-
 
 
 
@@ -1433,7 +1300,7 @@ int create_pbs_node(
     ipaddrs = AVL_insert(addr, pnode->get_service_port(), pnode, ipaddrs);
     }  /* END for (i) */
 
-  if ((rc = setup_node_boards(pnode,pul)) != PBSE_NONE)
+  if ((rc = pnode->setup_node_boards()) != PBSE_NONE)
     {
     return(rc);
     }
@@ -2055,6 +1922,7 @@ int node_np_action(
   
   {
   struct pbsnode *pnode = (struct pbsnode *)pobj;
+  int             rc = PBSE_NONE;
 
   if (new_attr == NULL)
     {
@@ -2079,7 +1947,7 @@ int node_np_action(
 
     case ATR_ACTION_ALTER:
 
-      pnode->set_execution_slot_count(new_attr->at_val.at_long);
+      rc = pnode->set_execution_slot_count(new_attr->at_val.at_long);
 
       break;
 
@@ -2088,7 +1956,7 @@ int node_np_action(
       return(-1);
     }
 
-  return(PBSE_NONE);
+  return(rc);
   } /* END node_np_action */
 
 

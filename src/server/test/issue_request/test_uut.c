@@ -8,6 +8,7 @@
 #include "test_uut.h"
 #include "pbs_error.h"
 #include "attribute.h"
+#include "pbs_nodes.h"
 
 bool return_addr;
 bool local_connect;
@@ -18,6 +19,15 @@ extern std::string rq_id_str;
 void queue_a_retry_task(batch_request *preq, void (*replyfunc)(struct work_task *));
 int send_request_to_remote_server(int conn, batch_request *request, bool close_handle);
 int issue_Drequest(int conn, batch_request *request, bool close_handle);
+
+
+START_TEST(dummy_test)
+  {
+  pbsnode *p = new pbsnode();
+  delete p;
+  printf("here\n");
+  }
+END_TEST
 
 
 START_TEST(queue_a_retry_task_test)
@@ -320,6 +330,7 @@ Suite *issue_request_suite(void)
   
   tc_core = tcase_create("test_issue_to_svr");
   tcase_add_test(tc_core, test_issue_to_svr);
+  tcase_add_test(tc_core, dummy_test);
   suite_add_tcase(s, tc_core);
 
   tc_core = tcase_create("test_reissue_to_svr");

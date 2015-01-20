@@ -13,17 +13,9 @@
 void populate_range_string_from_slot_tracker(const execution_slot_tracker &est, std::string &range_str);
 int  unlock_ji_mutex(job *pjob, const char *id, const char *msg, int logging);
 void free_prop_list(struct prop *prop);
+int read_val_and_advance(int *val, char **str);
 
 extern AvlTree ipaddrs;
-
-
-void pbsnode::set_name(
-
-  char *name)
-
-  {
-  this->nd_name = name;
-  }
 
 
 
@@ -31,28 +23,28 @@ pbsnode::pbsnode(
 
   const char *pname, /* node name */
   u_long     *pul,  /* host byte order array of ipaddrs for this node */
-  bool        isNUMANode) : nd_first(NULL), nd_last(NULL), nd_f_st(NULL), nd_l_st(NULL),
-                            nd_addrs(NULL), nd_prop(NULL), nd_status(NULL), nd_note(NULL),
-                            nd_flag(okay), nd_mom_port(0), nd_mom_rm_port(0),
-                            nd_sock_addr(), nd_nprops(0), nd_slots(), nd_job_usages(),
-                            nd_needed(0), nd_np_to_be_used(0), nd_state(0), nd_ntype(0),
-                            nd_order(0), nd_warnbad(0), nd_lastupdate(0), nd_hierarchy_level(0),
-                            nd_in_hierarchy(0), nd_ngpus(0), nd_gpus_real(false), nd_gpusn(NULL),
-                            nd_ngpus_free(0), nd_ngpus_needed(0), nd_ngpus_to_be_used(0),
-                            nd_gpustatus(NULL), nd_ngpustatus(0), nd_nmics(0),
-                            nd_micstatus(NULL), nd_micjobs(NULL), nd_nmics_alloced(0),
-                            nd_nmics_free(0), nd_nmics_to_be_used(0), parent(NULL),
-                            num_node_boards(0), node_boards(NULL), numa_str(NULL),
-                            gpu_str(NULL), nd_mom_reported_down(0), nd_is_alps_reporter(0),
-                            nd_is_alps_login(0), nd_ms_jobs(NULL), alps_subnodes(NULL),
-                            max_subnode_nppn(0), nd_power_state(0),
-                            nd_power_state_change_time(0), nd_acl(NULL), nd_requestid(NULL),
-                            nd_error()
+  bool        skip_lookup) : nd_first(NULL), nd_last(NULL), nd_f_st(NULL), nd_l_st(NULL),
+                             nd_addrs(NULL), nd_prop(NULL), nd_status(NULL), nd_note(NULL),
+                             nd_flag(okay), nd_mom_port(0), nd_mom_rm_port(0),
+                             nd_sock_addr(), nd_nprops(0), nd_slots(), nd_job_usages(),
+                             nd_needed(0), nd_np_to_be_used(0), nd_state(0), nd_ntype(0),
+                             nd_order(0), nd_warnbad(0), nd_lastupdate(0), nd_hierarchy_level(0),
+                             nd_in_hierarchy(0), nd_ngpus(0), nd_gpus_real(false), nd_gpusn(NULL),
+                             nd_ngpus_free(0), nd_ngpus_needed(0), nd_ngpus_to_be_used(0),
+                             nd_gpustatus(NULL), nd_ngpustatus(0), nd_nmics(0),
+                             nd_micstatus(NULL), nd_micjobs(NULL), nd_nmics_alloced(0),
+                             nd_nmics_free(0), nd_nmics_to_be_used(0), parent(NULL),
+                             num_node_boards(0), node_boards(NULL), numa_str(NULL),
+                             gpu_str(NULL), nd_mom_reported_down(0), nd_is_alps_reporter(0),
+                             nd_is_alps_login(0), alps_subnodes(NULL),
+                             max_subnode_nppn(0), nd_power_state(0),
+                             nd_power_state_change_time(0), nd_acl(NULL), nd_requestid(NULL)
 
   {
   struct addrinfo *pAddrInfo;
 
-  this->nd_name            = pname;
+  this->nd_name            = new std::string(pname);
+  this->nd_error           = new std::string("");
   this->nd_id              = node_mapper.get_new_id(this->get_name());
   this->nd_mom_port        = PBS_MOM_SERVICE_PORT;
   this->nd_mom_rm_port     = PBS_MANAGER_SERVICE_PORT;
@@ -80,13 +72,13 @@ pbsnode::pbsnode(
   this->nd_requestid       = new std::string();
 
   // NUMA nodes don't have their own address and their name is not in DNS.
-  if (!isNUMANode)
+  if (!skip_lookup)
     {
     if (pbs_getaddrinfo(pname,NULL,&pAddrInfo))
       {
-      nd_error = "Couldn't resolve hostname '";
-      nd_error += pname;
-      nd_error += "'.";
+      nd_error->append("Couldn't resolve hostname '");
+      nd_error->append(pname);
+      nd_error->append("'.");
       return;
       }
 
@@ -96,11 +88,11 @@ pbsnode::pbsnode(
   this->nd_mutex = (pthread_mutex_t *)calloc(1, sizeof(pthread_mutex_t));
   if (this->nd_mutex == NULL)
     {
-    nd_error = "Could not allocate memory for the node's mutex";
+    nd_error->append("Could not allocate memory for the node's mutex");
     log_err(ENOMEM, __func__, "Could not allocate memory for the node's mutex");
     }
   else
-    pthread_mutex_init(this->nd_mutex,NULL);
+    pthread_mutex_init(this->nd_mutex, NULL);
   } // END pbsnode(char *, unsigned long *, bool)
 
 
@@ -116,21 +108,25 @@ pbsnode::pbsnode() : nd_first(NULL), nd_last(NULL), nd_f_st(NULL), nd_l_st(NULL)
                      nd_micjobs(NULL), nd_nmics_alloced(0), nd_nmics_free(0),
                      nd_nmics_to_be_used(0), parent(NULL), num_node_boards(0), node_boards(NULL),
                      numa_str(NULL), gpu_str(NULL), nd_mom_reported_down(0),
-                     nd_is_alps_reporter(0), nd_is_alps_login(0), nd_ms_jobs(NULL),
+                     nd_is_alps_reporter(0), nd_is_alps_login(0),
                      alps_subnodes(NULL), max_subnode_nppn(0), nd_power_state(0),
                      nd_power_state_change_time(0), nd_acl(NULL), nd_requestid(NULL),
-                     nd_mutex(NULL), nd_error()
+                     nd_mutex(NULL)
 
   {
+  this->nd_mutex = (pthread_mutex_t *)calloc(1, sizeof(pthread_mutex_t));
+  pthread_mutex_init(this->nd_mutex, NULL);
+
+  this->nd_ms_jobs   = new std::vector<std::string>();
+  this->nd_name = new std::string();
+  this->nd_error = new std::string();
   } // END pbsnode()
 
 
 
 pbsnode::pbsnode(
     
-  const pbsnode &other) : nd_first(other.nd_first), nd_last(other.nd_last),
-                     nd_f_st(other.nd_f_st), nd_l_st(other.nd_l_st), nd_addrs(other.nd_addrs),
-                     nd_prop(other.nd_prop), nd_status(other.nd_status), nd_note(other.nd_note),
+  const pbsnode &other) : 
                      nd_flag(other.nd_flag),
                      nd_mom_port(other.nd_mom_port), nd_mom_rm_port(other.nd_mom_rm_port),
                      nd_sock_addr(other.nd_sock_addr), nd_nprops(other.nd_nprops),
@@ -140,28 +136,76 @@ pbsnode::pbsnode(
                      nd_warnbad(other.nd_warnbad), nd_lastupdate(other.nd_lastupdate),
                      nd_hierarchy_level(other.nd_hierarchy_level),
                      nd_in_hierarchy(other.nd_in_hierarchy), nd_ngpus(other.nd_ngpus),
-                     nd_gpus_real(other.nd_gpus_real), nd_gpusn(other.nd_gpusn),
+                     nd_gpus_real(other.nd_gpus_real),
                      nd_ngpus_free(other.nd_ngpus_free), nd_ngpus_needed(other.nd_ngpus_needed),
                      nd_ngpus_to_be_used(other.nd_ngpus_to_be_used),
-                     nd_gpustatus(other.nd_gpustatus), nd_ngpustatus(other.nd_ngpustatus),
-                     nd_nmics(other.nd_nmics), nd_micjobs(other.nd_micjobs),
-                     nd_micstatus(other.nd_micstatus), nd_nmics_alloced(other.nd_nmics_alloced),
-                     nd_nmics_free(other.nd_nmics_free),
-                     nd_nmics_to_be_used(other.nd_nmics_to_be_used), parent(other.parent),
-                     num_node_boards(other.num_node_boards), node_boards(other.node_boards),
-                     numa_str(other.numa_str), gpu_str(other.gpu_str),
+                     nd_ngpustatus(other.nd_ngpustatus),
+                     nd_nmics(other.nd_nmics),
+                     nd_nmics_alloced(other.nd_nmics_alloced),
+                     nd_nmics_free(other.nd_nmics_free), 
+                     nd_nmics_to_be_used(other.nd_nmics_to_be_used),
+                     num_node_boards(other.num_node_boards), 
                      nd_mom_reported_down(other.nd_mom_reported_down),
                      nd_is_alps_reporter(other.nd_is_alps_reporter),
-                     nd_is_alps_login(other.nd_is_alps_login), nd_ms_jobs(other.nd_ms_jobs),
-                     alps_subnodes(other.alps_subnodes), max_subnode_nppn(other.max_subnode_nppn),
-                     nd_power_state(other.nd_power_state),
+                     nd_is_alps_login(other.nd_is_alps_login), nd_note(NULL),
+                     max_subnode_nppn(other.max_subnode_nppn),
+                     nd_power_state(other.nd_power_state), gpu_str(NULL), numa_str(NULL),
                      nd_power_state_change_time(other.nd_power_state_change_time),
-                     nd_acl(other.nd_acl), nd_requestid(other.nd_requestid),
-                     nd_mutex(other.nd_mutex), nd_error()
+                     nd_acl(NULL), nd_requestid(NULL),
+                     nd_error(NULL)
 
   {
   memcpy(this->nd_mac_addr, other.nd_mac_addr, sizeof(this->nd_mac_addr));
   memcpy(this->nd_ttl, other.nd_ttl, sizeof(this->nd_ttl));
+
+  this->nd_name    = new std::string(other.nd_name->c_str());
+  this->nd_error   = new std::string(other.nd_error->c_str());
+  this->parent     = other.parent;
+  this->nd_ms_jobs   = new std::vector<std::string>();
+
+  for (unsigned int i = 0; i < other.nd_ms_jobs->size(); i++)
+    this->nd_ms_jobs->push_back(other.nd_ms_jobs->at(i));
+
+  if (other.nd_gpusn == NULL)
+    this->nd_gpusn = NULL;
+  else
+    {
+    for (short i = 0; i < other.nd_ngpus; i++)
+      this->create_a_gpusubnode();
+    }
+  
+  this->nd_first = init_prop(this->nd_name->c_str());
+  this->nd_last  = this->nd_first;
+  this->nd_f_st  = init_prop(this->nd_name->c_str());
+  this->nd_l_st  = this->nd_f_st;
+  this->nd_micjobs = NULL;
+  this->nd_prop = other.nd_prop;
+  this->nd_status = NULL;
+  if (other.nd_note != NULL)
+    this->nd_note = strdup(nd_note);
+  this->nd_gpustatus = NULL;
+  this->nd_micstatus = NULL;
+
+  if (other.numa_str != NULL)
+    this->numa_str = strdup(other.numa_str);
+
+  if (other.gpu_str != NULL)
+    this->gpu_str = strdup(other.gpu_str);
+  
+  this->node_boards = NULL;
+  this->nd_addrs = NULL; // FIX-ME
+
+  if (other.nd_requestid != NULL)
+    {
+    this->nd_requestid = new std::string(other.nd_requestid->c_str());
+    }
+
+  this->nd_mutex = (pthread_mutex_t *)calloc(1, sizeof(pthread_mutex_t));
+  pthread_mutex_init(this->nd_mutex, NULL);
+ 
+  this->alps_subnodes = NULL;
+  // copy nd_acl
+
   }
 
 
@@ -177,7 +221,7 @@ int pbsnode::get_node_id() const
 const char *pbsnode::get_name() const
 
   {
-  return(this->nd_name.c_str());
+  return(this->nd_name->c_str());
   } // END get_node_name()
 
 
@@ -185,7 +229,7 @@ const char *pbsnode::get_name() const
 const char *pbsnode::get_error() const
 
   {
-  return(this->nd_error.c_str());
+  return(this->nd_error->c_str());
   } // END get_error()
 
 
@@ -1005,7 +1049,7 @@ int pbsnode::set_execution_slot_count(
   int new_np = esc;
       
   if (new_np <= 0)
-    return PBSE_BADATVAL;
+    return(PBSE_BADATVAL);
 
   while (new_np != old_np)
     {
@@ -1036,11 +1080,11 @@ bool pbsnode::is_slot_occupied(
 
 int pbsnode::reserve_execution_slots(
 
-  int                     index,
+  int                     num_to_reserve,
   execution_slot_tracker &subset)
 
   {
-  return(this->nd_slots.reserve_execution_slot(index, subset));
+  return(this->nd_slots.reserve_execution_slots(num_to_reserve, subset));
   }
 
 
@@ -1053,12 +1097,23 @@ int pbsnode::unreserve_execution_slots(
   }
 
 
+
 int pbsnode::mark_slot_as_used(
 
   int index)
 
   {
   return(this->nd_slots.mark_as_used(index));
+  }
+
+
+
+int pbsnode::mark_slot_as_free(
+
+  int index)
+
+  {
+  return(this->nd_slots.mark_as_free(index));
   }
 
 
@@ -1092,7 +1147,7 @@ void pbsnode::update_node_state(
   if (LOGLEVEL >= 4)
     {
     snprintf(log_buf, sizeof(log_buf), "adjusting state for node %s - state=%d, newstate=%d",
-      this->nd_name.c_str(),
+      this->nd_name->c_str(),
       this->nd_state,
       newstate);
 
@@ -1171,12 +1226,120 @@ bool pbsnode::check_node_for_job(
     const job_usage_info &jui = this->nd_job_usages[i];
 
     if (internal_job_id == jui.internal_job_id)
-      return(TRUE);
+      return(true);
     }
 
   /* not found */
-  return(FALSE);
+  return(false);
   } /* END check_node_for_job() */
+
+
+
+int pbsnode::setup_node_boards()
+
+  {
+  pbsnode *pn;
+  char     pname[MAX_LINE];
+  char    *np_ptr = NULL;
+  char    *gp_ptr = NULL;
+  int      np;
+  int      gpus;
+  int      rc = PBSE_NONE;
+
+  char     log_buf[LOCAL_LOG_BUF_SIZE];
+
+  this->parent = NULL;
+
+  /* if this isn't a numa node, return no error */
+  if ((this->num_node_boards == 0) &&
+      (this->numa_str == NULL))
+    {
+    return(PBSE_NONE);
+    }
+
+  /* determine the number of cores per node */
+  if (this->numa_str != NULL)
+    {
+    np_ptr = this->numa_str;
+    }
+  else
+    np = this->get_execution_slot_count() / this->num_node_boards;
+
+  /* determine the number of gpus per node */
+  if (this->gpu_str != NULL)
+    {
+    gp_ptr = this->gpu_str;
+    read_val_and_advance(&gpus,&gp_ptr);
+    }
+  else
+    gpus = this->gpu_count() / this->num_node_boards;
+
+  for (int i = 0; i < this->num_node_boards; i++)
+    {
+    /* each numa node just has a number for a name */
+    snprintf(pname,sizeof(pname),"%s-%d",
+      this->get_name(), i);
+
+    pn = new pbsnode(pname, this->nd_addrs, true);
+
+    if (strlen(pn->get_error()) > 0)
+      {
+      delete pn;
+      return(rc);
+      }
+
+    /* make sure the server communicates on the correct ports */
+    pn->set_service_port(this->get_service_port());
+    pn->set_manager_port(this->get_manager_port());
+    memcpy(&pn->nd_sock_addr, &this->nd_sock_addr, sizeof(pn->nd_sock_addr));
+
+    /* update the np string pointer */
+    if (np_ptr != NULL)
+      read_val_and_advance(&np, &np_ptr);
+
+    /* create the subnodes for this node */
+    for (int j = 0; j < np; j++)
+      pn->add_execution_slot();
+
+    /* create the gpu subnodes for this node */
+    for (int j = 0; j < gpus; j++)
+      {
+      if (pn->create_a_gpusubnode() != PBSE_NONE)
+        {
+        /* ERROR */
+        free(pn);
+        return(PBSE_SYSTEM);
+        }
+      }
+
+    /* update the gpu string pointer */
+    if (gp_ptr != NULL)
+      read_val_and_advance(&gpus,&gp_ptr);
+
+    copy_properties(pn, this);
+
+    /* add the node to the private tree */
+    this->node_boards = AVL_insert(i,
+        pn->get_service_port(),
+        pn,
+        this->node_boards);
+
+    /* set my parent node pointer */
+    pn->parent = this;
+    } /* END for each node_board */
+
+  if (LOGLEVEL >= 3)
+    {
+    snprintf(log_buf,sizeof(log_buf),
+      "Successfully created %d numa nodes for node %s\n",
+      this->num_node_boards,
+      this->get_name());
+
+    log_event(PBSEVENT_SYSTEM, PBS_EVENTCLASS_NODE, __func__, log_buf);
+    }
+
+  return(PBSE_NONE);
+  } /* END setup_node_boards() */
 
 
 
@@ -1644,6 +1807,9 @@ void pbsnode::delete_a_gpusubnode()
 
   /* decrement the number of gpu subnodes */
   this->nd_ngpus--;
+
+  if (this->nd_ngpus == 0)
+    this->nd_gpusn = NULL;
   } /* END delete_a_gpusubnode() */
 
 
@@ -1864,8 +2030,6 @@ pbsnode::~pbsnode()
   if (this->nd_micjobs != NULL)
     free(this->nd_micjobs);
 
-  this->nd_last->next = NULL;      /* just in case */
-
   free_prop_list(this->nd_first);
 
   this->nd_first = NULL;
@@ -1909,7 +2073,33 @@ pbsnode::~pbsnode()
 
   if (this->nd_requestid != NULL)
     delete this->nd_requestid;
+
+  if (this->nd_name != NULL)
+    delete this->nd_name;
+
+  if (this->nd_error != NULL)
+    delete this->nd_error;
   } // END destructor
 
 
+void pbsnode::set_name(
+
+  const char *name)
+
+  {
+  if (this->nd_name != NULL)
+    delete this->nd_name;
+
+  this->nd_name = new std::string(name);
+  }
+
+
+
+void pbsnode::set_node_id(
+
+  int nid)
+
+  {
+  this->nd_id = nid;
+  }
 

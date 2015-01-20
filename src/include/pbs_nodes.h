@@ -297,8 +297,8 @@ class pbsnode
   {
 private:
   // populated if there is an error on node creation
-  std::string                   nd_error; 
-  std::string                   nd_name;             /* node's host name */
+  std::string                  *nd_error; 
+  std::string                  *nd_name;             /* node's host name */
   int                           nd_id;               /* node's id */
   short                         nd_nmics;            /* number of mics */
   short                         nd_nmics_alloced;    /* number of mic slots alloc'ed */
@@ -400,6 +400,8 @@ public:
   enum psit   get_flag() const;
   pbsnode    *get_parent();
 
+  int         setup_node_boards();
+  void        set_node_id(int id);
   void        set_real_gpus();
   void        delete_a_gpusubnode();
   int         set_gpu_count(short gpu_count);
@@ -419,6 +421,7 @@ public:
   int         reserve_execution_slots(int index, execution_slot_tracker &subset);
   int         unreserve_execution_slots(const execution_slot_tracker &subset);
 	int         mark_slot_as_used(int index);
+	int         mark_slot_as_free(int index);
   void        set_order(int rank);
   void        save_space_for_req(single_spec_data *req);
   int         get_gpu_index(job *pjob, int requested_gpu_mode);
@@ -430,7 +433,7 @@ public:
   int         status_nodeattrib(svrattrl *pal, attribute_def *padef, int limit, int priv, tlist_head *phead,
                                 int *bad);
   void        update_node_state(int newstate);
-  void        set_name(char *);
+  void        set_name(const char *);
   void        set_mic_count(short);
   int         set_execution_slot_count(int esc);
   void        remove_job_from_nodes_mics(job *pjob);
@@ -438,7 +441,7 @@ public:
   void        remove_job_from_node(int internal_job_id);
   void        delete_a_subnode();
 
-  pbsnode(const char *pname, u_long *pul, bool isNUMANode);
+  pbsnode(const char *pname, u_long *pul, bool skip_address_lookup);
   pbsnode();
   ~pbsnode();
   pbsnode(const pbsnode &other);

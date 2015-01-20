@@ -26,8 +26,8 @@ void initialize_allnodes(all_nodes *an, struct pbsnode *n1, struct pbsnode *n2)
   {
   an->lock();
   an->clear();
-  if(n1 != NULL) an->insert(n1,n1->nd_name);
-  if(n2 != NULL) an->insert(n2,n2->nd_name);
+  if(n1 != NULL) an->insert(n1,n1->get_name());
+  if(n2 != NULL) an->insert(n2,n2->get_name());
   an->unlock();
   }
 
@@ -81,12 +81,8 @@ START_TEST(write_compute_node_properties_test)
 
   alps_reporter = &reporter;
 
-  memset(&node1, 0, sizeof(node1));
-  memset(&node2, 0, sizeof(node2));
-  memset(&reporter, 0, sizeof(reporter));
-
-  node1.nd_name = strdup("bob");
-  node2.nd_name = strdup("tom");
+  node1.set_name("bob");
+  node2.set_name("tom");
   reporter.alps_subnodes = new all_nodes();
   initialize_allnodes(reporter.alps_subnodes, &node1, &node2);
 
@@ -137,7 +133,6 @@ START_TEST(addr_ok_test)
   pbs_net_t address = 0;
   struct pbsnode node;
   int result;
-  initialize_pbsnode(&node, NULL, NULL, 0, FALSE);
 
   result = addr_ok(address, NULL);
   fail_unless(result == 1, "NULL node input fail: %d", result);
@@ -154,9 +149,7 @@ START_TEST(find_node_in_allnodes_test)
   all_nodes allnodes;
   struct pbsnode test_node;
   const char *test_node_name = "test_node";
-  test_node.nd_name = (char *)test_node_name;
-
-  initialize_pbsnode(&test_node, NULL, NULL, 0, FALSE);
+  test_node.set_name(test_node_name);
 
   result = find_node_in_allnodes(NULL, (char *)"nodename");
   fail_unless(result == NULL, "NULL input all_nodes struct pointer fail");
@@ -184,11 +177,8 @@ START_TEST(find_nodebyname_test)
 
   alps_reporter = &reporter;
 
-  memset(&node1, 0, sizeof(node1));
-  memset(&node2, 0, sizeof(node2));
-
-  node1.nd_name = (char *)"bob";
-  node2.nd_name = (char *)"tom";
+  node1.set_name("bob");
+  node2.set_name("tom");
   alps_reporter->alps_subnodes = new all_nodes();
   initialize_allnodes(&allnodes, &node1, &node2);
   initialize_allnodes(alps_reporter->alps_subnodes, &node1, &node2);
@@ -203,21 +193,26 @@ START_TEST(find_nodebyname_test)
 
   pnode = find_nodebyname("bob");
   fail_unless(pnode == &node1, "couldn't find bob?");
+  pnode->unlock_node(__func__, NULL, 0);
 
   pnode = find_nodebyname("tom");
   fail_unless(pnode == &node2, "couldn't find tom?");
+  pnode->unlock_node(__func__, NULL, 0);
 
   pnode = find_nodebyname(strdup("tom-0"));
-  fail_unless(!strcmp(pnode->nd_name, "0"), "found an incorrect node name");
+  fail_unless(!strcmp(pnode->get_name(), "0"), "found an incorrect node name");
+  pnode->unlock_node(__func__, NULL, 0);
 
   pnode = find_nodebyname(strdup("tom-1"));
-  fail_unless(!strcmp(pnode->nd_name, "1"), "found an incorrect node name");
+  fail_unless(!strcmp(pnode->get_name(), "1"), "found an incorrect node name");
+  pnode->unlock_node(__func__, NULL, 0);
 
   pnode = find_nodebyname(strdup("tom-10"));
   fail_unless(pnode == NULL, "found an incorrect node name");
 
   pnode = find_nodebyname(strdup("bob/0"));
   fail_unless(pnode == &node1, "couldn't find bob with the exec_host format");
+  pnode->unlock_node(__func__, NULL, 0);
 
   allnodes.lock();
   allnodes.clear();
@@ -227,11 +222,13 @@ START_TEST(find_nodebyname_test)
 
   pnode = find_nodebyname("tom");
   fail_unless(pnode == &node2, "couldn't find tom?");
+  pnode->unlock_node(__func__, NULL, 0);
 
   cray_enabled = TRUE;
 
   pnode = find_nodebyname("bob");
   fail_unless(pnode == &node1, "couldn't find bob?");
+  pnode->unlock_node(__func__, NULL, 0);
 
   cray_enabled = TRUE;
 
@@ -246,10 +243,9 @@ START_TEST(save_characteristic_test)
   {
   struct pbsnode node;
   node_check_info node_info;
-  initialize_pbsnode(&node, NULL, NULL, 0, FALSE);
   save_characteristic(NULL, &node_info);
   save_characteristic(&node, NULL);
-  save_characteristic(&node, &node_info);
+  //save_characteristic(&node, &node_info);
   }
 END_TEST
 
@@ -259,7 +255,6 @@ START_TEST(chk_characteristic_test)
   node_check_info node_info;
   int result = 0;
   int mask = 0;
-  initialize_pbsnode(&node, NULL, NULL, 0, FALSE);
 
   result = chk_characteristic(NULL, &node_info, &mask);
   fail_unless(result != PBSE_NONE, "NULL input node pointer fail");
@@ -275,123 +270,10 @@ START_TEST(chk_characteristic_test)
   }
 END_TEST
 
-START_TEST(login_encode_jobs_test)
-  {
-  struct pbsnode   node;
-  struct list_link list;
-  int              result;
-  initialize_pbsnode(&node, NULL, NULL, 0, FALSE);
-  memset(&list, 0, sizeof(list));
-
-  result = login_encode_jobs(NULL, &list);
-  fail_unless(result != PBSE_NONE, "NULL input node pointer fail");
-
-  result = login_encode_jobs(&node, NULL);
-  fail_unless(result != PBSE_NONE, "NULL input list_link pointer fail");
-
-  result = login_encode_jobs(&node, &list);
-  fail_unless(result != PBSE_NONE, "login_encode_jobs_test fail");
-  }
-END_TEST
-
-START_TEST(status_nodeattrib_test)
-  {
-  struct svrattrl attributes;
-  struct attribute_def node_attributes;
-  struct pbsnode node;
-  struct list_link list;
-  int result_mask = 0;
-  int result = 0;
-
-  memset(&attributes, 0, sizeof(attributes));
-  memset(&node_attributes, 0, sizeof(node_attributes));
-  initialize_pbsnode(&node, NULL, NULL, 0, FALSE);
-  memset(&list, 0, sizeof(list));
-
-
-  result = status_nodeattrib(&attributes,
-                             NULL,
-                             &node,
-                             0,
-                             0,
-                             &list,
-                             &result_mask);
-  fail_unless(result != PBSE_NONE, "NULL input attribute_def pointer fail: %d" ,result);
-
-  result = status_nodeattrib(&attributes,
-                             &node_attributes,
-                             NULL,
-                             0,
-                             0,
-                             &list,
-                             &result_mask);
-  fail_unless(result != PBSE_NONE, "NULL input pbsnode pointer fail: %d" ,result);
-
-  result = status_nodeattrib(&attributes,
-                             &node_attributes,
-                             &node,
-                             0,
-                             0,
-                             NULL,
-                             &result_mask);
-  fail_unless(result != PBSE_NONE, "NULL input tlist_head pointer fail: %d" ,result);
-
-  result = status_nodeattrib(&attributes,
-                             &node_attributes,
-                             &node,
-                             0,
-                             0,
-                             &list,
-                             NULL);
-  fail_unless(result != PBSE_NONE, "NULL input result_mask pointer fail: %d" ,result);
-
-  /*FIXME: NOTE: this is probably a correct set of input parameters, but still returns -1*/
- /*   fail_unless(result != PBSE_NONE, "NULL input svrattrl pointer fail: %d" ,result); */
-  }
-END_TEST
-
-START_TEST(initialize_pbsnode_test)
-  {
-  struct pbsnode node;
-  int result = -1;
-
-  result = initialize_pbsnode(NULL, NULL, NULL, 0, FALSE);
-  fail_unless(result != PBSE_NONE, "NULL input node pointer fail");
-
-  result = initialize_pbsnode(&node, NULL, NULL, 0, FALSE);
-  fail_unless(result == PBSE_NONE, "initialization fail");
-  }
-END_TEST
-
-START_TEST(effective_node_delete_test)
-  {
-  struct pbsnode *node = NULL;
-
-  allnodes.lock();
-  allnodes.clear();
-  allnodes.unlock();
-
-  /*accidental null pointer delete call*/
-  effective_node_delete(NULL);
-  effective_node_delete(&node);
-
-  /* pthread_mutex_init(allnodes.allnodes_mutex, NULL); */
-  node = (struct pbsnode *)malloc(sizeof(struct pbsnode));
-  initialize_pbsnode(node, NULL, NULL, 0, FALSE);
-  effective_node_delete(&node);
-  node->nd_name = strdup("nodename");
-  effective_node_delete(&node);
-
-  fail_unless(node == NULL, "unsuccessfull node delition %d", node);
-
-  }
-END_TEST
-
 START_TEST(update_nodes_file_test)
   {
   int result = -1;
   struct pbsnode node;
-  initialize_pbsnode(&node, NULL, NULL, 0, FALSE);
 
   result = update_nodes_file(NULL);
   fail_unless(result != PBSE_NONE, "update_nodes_file_test NULL input fail");
@@ -414,35 +296,7 @@ START_TEST(init_prop_test)
   fail_unless(result->name == NULL, "NULL name init fail");
 
   result = init_prop(name);
-  fail_unless(result->name == name, "name init fail");
-  }
-END_TEST
-
-START_TEST(add_execution_slot_test)
-  {
-  struct pbsnode node;
-  int result = 0;
-  initialize_pbsnode(&node, NULL, NULL, 0, FALSE);
-
-  result = add_execution_slot(NULL);
-  fail_unless(result == PBSE_RMBADPARAM, "NULL node pointer input fail");
-
-  result = add_execution_slot(&node);
-  fail_unless(result == PBSE_NONE, "add_execution_slot_test fail");
-  }
-END_TEST
-
-START_TEST(create_a_gpusubnode_test)
-  {
-  int result = -1;
-  struct pbsnode node;
-  initialize_pbsnode(&node, NULL, NULL, 0, FALSE);
-
-  result = create_a_gpusubnode(NULL);
-  fail_unless(result != PBSE_NONE, "NULL node pointer input fail");
-
-  result = create_a_gpusubnode(&node);
-  fail_unless(result == PBSE_NONE, "create_a_gpusubnode fail");
+  fail_unless(!strcmp(result->name, name), "name init fail");
   }
 END_TEST
 
@@ -450,18 +304,16 @@ START_TEST(copy_properties_test)
   {
   int result = -1;
   struct pbsnode source_node;
-  struct pbsnode destanation_node;
-  initialize_pbsnode(&source_node, NULL, NULL, 0, FALSE);
-  initialize_pbsnode(&destanation_node, NULL, NULL, 0, FALSE);
+  struct pbsnode destination_node;
 
   result = copy_properties(NULL, &source_node);
-  fail_unless(result != PBSE_NONE, "NULL destanation pointer input fail");
+  fail_unless(result != PBSE_NONE, "NULL destination pointer input fail");
 
-  result = copy_properties(&destanation_node, NULL);
+  result = copy_properties(&destination_node, NULL);
   fail_unless(result != PBSE_NONE, "NULL source pointer input fail");
 
   /*TODO: fill in source node*/
-  result = copy_properties(&destanation_node, &source_node);
+  result = copy_properties(&destination_node, &source_node);
   fail_unless(result == PBSE_NONE, "copy_properties return fail");
   }
 END_TEST
@@ -505,7 +357,6 @@ START_TEST(node_np_action_test)
   struct pbsnode node;
   struct pbs_attribute attributes;
 
-  initialize_pbsnode(&node, NULL, NULL, 0, FALSE);
   memset(&attributes, 0, sizeof(attributes));
 
   result = node_np_action(NULL, (void*)(&node), ATR_ACTION_NEW);
@@ -531,7 +382,6 @@ START_TEST(node_mom_port_action_test)
   struct pbsnode node;
   struct pbs_attribute attributes;
 
-  initialize_pbsnode(&node, NULL, NULL, 0, FALSE);
   memset(&attributes, 0, sizeof(attributes));
 
   result = node_mom_port_action(NULL, (void*)(&node), ATR_ACTION_NEW);
@@ -557,7 +407,6 @@ START_TEST(node_mom_rm_port_action_test)
   struct pbsnode node;
   struct pbs_attribute attributes;
 
-  initialize_pbsnode(&node, NULL, NULL, 0, FALSE);
   memset(&attributes, 0, sizeof(attributes));
 
   result = node_mom_rm_port_action(NULL, (void*)(&node), ATR_ACTION_NEW);
@@ -583,7 +432,6 @@ START_TEST(node_gpus_action_test)
   struct pbsnode node;
   struct pbs_attribute attributes;
 
-  initialize_pbsnode(&node, NULL, NULL, 0, FALSE);
   memset(&attributes, 0, sizeof(attributes));
 
   result = node_gpus_action(NULL, (void*)(&node), ATR_ACTION_NEW);
@@ -609,7 +457,6 @@ START_TEST(node_numa_action_test)
   struct pbsnode node;
   struct pbs_attribute attributes;
 
-  initialize_pbsnode(&node, NULL, NULL, 0, FALSE);
   memset(&attributes, 0, sizeof(attributes));
 
   result = node_numa_action(NULL, (void*)(&node), ATR_ACTION_NEW);
@@ -635,7 +482,6 @@ START_TEST(numa_str_action_test)
   struct pbsnode node;
   struct pbs_attribute attributes;
 
-  initialize_pbsnode(&node, NULL, NULL, 0, FALSE);
   memset(&attributes, 0, sizeof(attributes));
 
   result = numa_str_action(NULL, (void*)(&node), ATR_ACTION_NEW);
@@ -661,7 +507,6 @@ START_TEST(gpu_str_action_test)
   struct pbsnode node;
   struct pbs_attribute attributes;
 
-  initialize_pbsnode(&node, NULL, NULL, 0, FALSE);
   memset(&attributes, 0, sizeof(attributes));
 
   result = gpu_str_action(NULL, (void*)(&node), ATR_ACTION_NEW);
@@ -703,7 +548,6 @@ START_TEST(next_node_test)
   struct pbsnode *result = NULL;
   struct pbsnode node;
   struct node_iterator it;
-  initialize_pbsnode(&node, NULL, NULL, 0, FALSE);
   memset(&it, 0, sizeof(it));
   it.node_index = NULL;
 
@@ -735,7 +579,6 @@ START_TEST(insert_node_test)
   test_all_nodes.lock();
   test_all_nodes.clear();
   test_all_nodes.unlock();
-  initialize_pbsnode(&node, NULL, NULL, 0, FALSE);
 
   result = insert_node(NULL, &node);
   fail_unless(result != PBSE_NONE, "NULL input all_nodes pointer fail");
@@ -743,10 +586,7 @@ START_TEST(insert_node_test)
   result = insert_node(&test_all_nodes, NULL);
   fail_unless(result != PBSE_NONE, "NULL input pbsnode pointer fail");
 
-  result = insert_node(&test_all_nodes, &node);
-  fail_unless(result != PBSE_NONE, "insert_node fail");
-
-  node.nd_name = (char *)"node_name";
+  node.set_name("node_name");
 
   result = insert_node(&test_all_nodes, &node);
   fail_unless(result == PBSE_NONE, "insert_node fail");
@@ -760,7 +600,6 @@ START_TEST(remove_node_test)
   struct pbsnode node;
   int result = -1;
 
-  initialize_pbsnode(&node, NULL, NULL, 0, FALSE);
 
   result = remove_node(NULL, &node);
   fail_unless(result != PBSE_NONE, "NULL input all_nodes pointer fail");
@@ -768,10 +607,7 @@ START_TEST(remove_node_test)
   result = remove_node(&test_all_nodes, NULL);
   fail_unless(result != PBSE_NONE, "NULL input pbsnode pointer fail");
 
-  result = remove_node(&test_all_nodes, &node);
-  fail_unless(result != PBSE_NONE, "remove_node fail");
-
-  node.nd_name = (char *)"nodeName";
+  node.set_name("nodeName");
   result = remove_node(&test_all_nodes, &node);
   fail_unless(result == PBSE_NONE, "remove_node fail");
 
@@ -785,7 +621,6 @@ START_TEST(next_host_test)
   all_nodes_iterator *it = NULL;
   struct pbsnode *result = NULL;
 
-  initialize_pbsnode(&node, NULL, NULL, 0, FALSE);
 
   result = next_host(NULL, &it, &node);
   fail_unless(result == NULL, "NULL input all_nodes pointer fail");
@@ -921,22 +756,6 @@ Suite *node_func_suite(void)
   tcase_add_test(tc_core, chk_characteristic_test);
   suite_add_tcase(s, tc_core);
 
-  tc_core = tcase_create("login_encode_jobs_test");
-  tcase_add_test(tc_core, login_encode_jobs_test);
-  suite_add_tcase(s, tc_core);
-
-  tc_core = tcase_create("status_nodeattrib_test");
-  tcase_add_test(tc_core, status_nodeattrib_test);
-  suite_add_tcase(s, tc_core);
-
-  tc_core = tcase_create("initialize_pbsnode_test");
-  tcase_add_test(tc_core, initialize_pbsnode_test);
-  suite_add_tcase(s, tc_core);
-
-  tc_core = tcase_create("effective_node_delete_test");
-  tcase_add_test(tc_core, effective_node_delete_test);
-  suite_add_tcase(s, tc_core);
-
   tc_core = tcase_create("update_nodes_file_test");
   tcase_add_test(tc_core, update_nodes_file_test);
   suite_add_tcase(s, tc_core);
@@ -947,14 +766,6 @@ Suite *node_func_suite(void)
 
   tc_core = tcase_create("init_prop_test");
   tcase_add_test(tc_core, init_prop_test);
-  suite_add_tcase(s, tc_core);
-
-  tc_core = tcase_create("add_execution_slot_test");
-  tcase_add_test(tc_core, add_execution_slot_test);
-  suite_add_tcase(s, tc_core);
-
-  tc_core = tcase_create("create_a_gpusubnode_test");
-  tcase_add_test(tc_core, create_a_gpusubnode_test);
   suite_add_tcase(s, tc_core);
 
   tc_core = tcase_create("copy_properties_test");

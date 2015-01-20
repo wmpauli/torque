@@ -16,6 +16,7 @@
 #include "mutex_mgr.hpp"
 #include "threadpool.h"
 #include "id_map.hpp"
+#include "pbs_nodes.h"
 
 bool exit_called = false;
 const char *PJobSubState[10];
@@ -437,4 +438,9 @@ int id_map::get_new_id(const char *job_name)
   }
 
 id_map job_mapper;
+
+int pbsnode::unlock_node(const char *caller, const char *msg, int level)
+  {
+  return(0);
+  }
 

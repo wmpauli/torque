@@ -423,6 +423,7 @@ src/server/test/node_func/test_node_func
 src/server/test/node_manager/test_node_manager
 src/server/test/pbsd_init/test_pbsd_init
 src/server/test/pbsd_main/test_pbsd_main
+src/server/test/pbsnode/test_pbsnode
 src/server/test/process_alps_status/test_process_alps_status
 src/server/test/process_mom_update/test_process_mom_update
 src/server/test/process_request/test_process_request

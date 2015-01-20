@@ -110,8 +110,6 @@ struct pbsnode *find_nodebyname(const char *nodename)
   {
   static struct pbsnode bob;
 
-  memset(&bob, 0, sizeof(bob));
-
   if (!strcmp(nodename, "bob"))
     return(&bob);
   else if (!strcmp(nodename, "2"))
@@ -126,8 +124,6 @@ struct pbsnode *find_nodebyid(int id)
   {
   static struct pbsnode bob;
 
-  memset(&bob, 0, sizeof(bob));
-
   if (id == 1)
     return(&bob);
   else
@@ -137,8 +133,6 @@ struct pbsnode *find_nodebyid(int id)
 struct pbsnode *find_node_in_allnodes(all_nodes *an, char *nodename)
   {
   static struct pbsnode cray;
-
-  memset(&cray, 0, sizeof(cray));
 
   if (!strcmp(nodename, "cray"))
     return(&cray);
@@ -627,3 +621,71 @@ ssize_t write_ac_socket(int fd, const void *buf, ssize_t count)
   return(0);
   }
 
+int pbs_getaddrinfo(
+    
+  const char       *pNode,
+  struct addrinfo  *pHints,
+  struct addrinfo **ppAddrInfoOut)
+  
+  {
+  return(0);
+  }
+
+int remove_node(
+
+  all_nodes      *an,
+  struct pbsnode *pnode)
+  
+  {
+  return(0);
+  }
+
+int id_map::get_new_id(const char *name)
+
+  {
+  return(0);
+  }
+
+struct prop *init_prop(
+
+  const char *pname) /* I */
+
+  {
+  return(NULL);
+  }
+
+bool node_exists(const char *name)
+  {
+  return(true);
+  }
+
+void free_prop_list(
+    
+  struct prop *prop)
+
+  {
+  }
+
+AvlTree AVL_insert( u_long key, uint16_t port, struct pbsnode *node, AvlTree tree )
+
+  {
+  return(NULL);
+  }
+
+int read_val_and_advance(
+
+  int   *val,
+  char **str)
+
+  {
+  return(0);
+  }
+
+int copy_properties(
+
+  struct pbsnode *dest, /* I */
+  struct pbsnode *src)  /* O */
+
+  {
+  return(0);
+  }

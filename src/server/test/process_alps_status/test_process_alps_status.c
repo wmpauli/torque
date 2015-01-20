@@ -31,8 +31,6 @@ START_TEST(record_reservation_test)
   {
   struct pbsnode pnode;
 
-  memset(&pnode, 0, sizeof(pnode));
-
   fail_unless(record_reservation(&pnode, "1") != PBSE_NONE);
 
   job_usage_info jui(1);
@@ -47,18 +45,17 @@ START_TEST(set_ncpus_test)
   struct pbsnode  pnode;
   struct pbsnode  parent;
 
-  memset(&parent,0,sizeof(pbsnode));
   fail_unless(set_ncpus(&pnode,&parent, 2) == 0, "Couldn't set ncpus to 2");
-  snprintf(buf, sizeof(buf), "ncpus should be 2 but is %d", pnode.nd_slots.get_total_execution_slots());
-  fail_unless(pnode.nd_slots.get_total_execution_slots() == 2, buf);
+  snprintf(buf, sizeof(buf), "ncpus should be 2 but is %d", pnode.get_execution_slot_count());
+  fail_unless(pnode.get_execution_slot_count() == 2, buf);
 
   fail_unless(set_ncpus(&pnode,&parent, 4) == 0, "Couldn't set ncpus to 4");
-  snprintf(buf, sizeof(buf), "ncpus should be 4 but is %d", pnode.nd_slots.get_total_execution_slots());
-  fail_unless(pnode.nd_slots.get_total_execution_slots() == 4, buf);
+  snprintf(buf, sizeof(buf), "ncpus should be 4 but is %d", pnode.get_execution_slot_count());
+  fail_unless(pnode.get_execution_slot_count() == 4, buf);
 
   fail_unless(set_ncpus(&pnode,&parent, 8) == 0, "Couldn't set ncpus to 8");
-  snprintf(buf, sizeof(buf), "ncpus should be 8 but is %d", pnode.nd_slots.get_total_execution_slots());
-  fail_unless(pnode.nd_slots.get_total_execution_slots() == 8, buf);
+  snprintf(buf, sizeof(buf), "ncpus should be 8 but is %d", pnode.get_execution_slot_count());
+  fail_unless(pnode.get_execution_slot_count() == 8, buf);
   }
 END_TEST
 
@@ -69,21 +66,19 @@ START_TEST(set_ngpus_test)
   {
   struct pbsnode pnode;
 
-  memset(&pnode, 0, sizeof(pnode));
-
   fail_unless(set_ngpus(&pnode, 2) == 0, "Couldn't set ngpus to 2");
-  snprintf(buf, sizeof(buf), "ngpus should be 2 but id %d", pnode.nd_ngpus);
-  fail_unless(pnode.nd_ngpus == 2, buf);
+  snprintf(buf, sizeof(buf), "ngpus should be 2 but id %d", pnode.gpu_count());
+  fail_unless(pnode.gpu_count() == 2, buf);
 
-  pnode.nd_ngpus = 0;
+  pnode.set_gpu_count(0);
   fail_unless(set_ngpus(&pnode, 4) == 0, "Couldn't set ngpus to 4");
-  snprintf(buf, sizeof(buf), "ngpus should be 4 but id %d", pnode.nd_ngpus);
-  fail_unless(pnode.nd_ngpus == 4, buf);
+  snprintf(buf, sizeof(buf), "ngpus should be 4 but id %d", pnode.gpu_count());
+  fail_unless(pnode.gpu_count() == 4, buf);
 
-  pnode.nd_ngpus = 0;
+  pnode.set_gpu_count(0);
   fail_unless(set_ngpus(&pnode, 8) == 0, "Couldn't set ngpus to 8");
-  snprintf(buf, sizeof(buf), "ngpus should be 8 but id %d", pnode.nd_ngpus);
-  fail_unless(pnode.nd_ngpus == 8, buf);
+  snprintf(buf, sizeof(buf), "ngpus should be 8 but id %d", pnode.gpu_count());
+  fail_unless(pnode.gpu_count() == 8, buf);
   }
 END_TEST
 
@@ -96,8 +91,6 @@ START_TEST(set_state_test)
   struct pbsnode  pnode;
   const char    *up_str   = "state=UP";
   const char    *down_str = "state=DOWN";
-
-  memset(&pnode, 0, sizeof(pnode));
 
   set_state(&pnode, up_str);
   snprintf(buf, sizeof(buf), "Couldn't set state to up, state is %d", pnode.nd_state);
@@ -165,8 +158,7 @@ START_TEST(determine_node_from_str_test)
   const char     *node_str2 = "node=george";
   struct pbsnode *new_node;
 
-  memset(&parent, 0, sizeof(parent));
-  parent.nd_name = strdup("george");
+  parent.set_name("george");
   parent.alps_subnodes = new all_nodes();
 
   count = 0; // set so that create_alps_subnode doesn't fail
@@ -203,7 +195,6 @@ START_TEST(create_alps_subnode_test)
   extern int      svr_clnodes;
   int             start_clnodes_value = svr_clnodes;;
 
-  memset(&parent, 0, sizeof(struct pbsnode));
 
   subnode = create_alps_subnode(&parent, node_id);
   fail_unless(subnode != NULL, "subnode was returned NULL?");
@@ -238,8 +229,6 @@ END_TEST
 START_TEST(process_reservation_id_test)
   {
   struct pbsnode pnode;
-
-  memset(&pnode, 0, sizeof(struct pbsnode));
 
   fail_unless(process_reservation_id(&pnode, "12") == 0, "couldn't process reservation");
   fail_unless(process_reservation_id(&pnode, "13") == 0, "couldn't process reservation");

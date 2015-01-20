@@ -36,3 +36,16 @@ int status_node(struct pbsnode *pnode, struct batch_request *preq, int *bad, tli
   return(0);
   }
 
+pbsnode::pbsnode() 
+  {
+  }
+
+pbsnode::~pbsnode() 
+  {
+  }
+
+int pbsnode::unlock_node(const char *caller, const char *msg, int level)
+  {
+  return(0);
+  }
+

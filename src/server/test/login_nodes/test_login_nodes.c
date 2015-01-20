@@ -16,9 +16,8 @@ void initialize_node_for_testing(
   struct pbsnode *pnode)
 
   {
-  memset(pnode, 0, sizeof(struct pbsnode));
   for (int i = 0; i < 5; i++)
-    pnode->nd_slots.add_execution_slot();
+    pnode->add_execution_slot();
   }
 
 
@@ -116,12 +115,16 @@ START_TEST(retrieval_test)
 
   rtd = get_next_login_node(NULL);
   increment_counts(&n1, &n2, &n3, &n4, rtd, &n1_rtd, &n2_rtd, &n3_rtd, &n4_rtd);
+  rtd->unlock_node(__func__, NULL, 0);
   rtd = get_next_login_node(NULL);
   increment_counts(&n1, &n2, &n3, &n4, rtd, &n1_rtd, &n2_rtd, &n3_rtd, &n4_rtd);
+  rtd->unlock_node(__func__, NULL, 0);
   rtd = get_next_login_node(NULL);
   increment_counts(&n1, &n2, &n3, &n4, rtd, &n1_rtd, &n2_rtd, &n3_rtd, &n4_rtd);
+  rtd->unlock_node(__func__, NULL, 0);
   rtd = get_next_login_node(NULL);
   increment_counts(&n1, &n2, &n3, &n4, rtd, &n1_rtd, &n2_rtd, &n3_rtd, &n4_rtd);
+  rtd->unlock_node(__func__, NULL, 0);
   snprintf(buf, sizeof(buf), "Should have used n1 once but is %d", n1_rtd);
   fail_unless(n1_rtd == 1, buf);
   snprintf(buf, sizeof(buf), "Should have used n2 once but is %d", n2_rtd);
@@ -133,31 +136,38 @@ START_TEST(retrieval_test)
   
   rtd = get_next_login_node(NULL);
   increment_counts(&n1, &n2, &n3, &n4, rtd, &n1_rtd, &n2_rtd, &n3_rtd, &n4_rtd);
+  rtd->unlock_node(__func__, NULL, 0);
   rtd = get_next_login_node(NULL);
   increment_counts(&n1, &n2, &n3, &n4, rtd, &n1_rtd, &n2_rtd, &n3_rtd, &n4_rtd);
+  rtd->unlock_node(__func__, NULL, 0);
   rtd = get_next_login_node(NULL);
   increment_counts(&n1, &n2, &n3, &n4, rtd, &n1_rtd, &n2_rtd, &n3_rtd, &n4_rtd);
+  rtd->unlock_node(__func__, NULL, 0);
   rtd = get_next_login_node(NULL);
   increment_counts(&n1, &n2, &n3, &n4, rtd, &n1_rtd, &n2_rtd, &n3_rtd, &n4_rtd);
+  rtd->unlock_node(__func__, NULL, 0);
   fail_unless(n1_rtd == 2, "Should have used n1 twice");
   fail_unless(n2_rtd == 2, "Should have used n2 twice");
   fail_unless(n3_rtd == 2, "Should have used n3 twice");
   fail_unless(n4_rtd == 2, "Should have used n4 twice");
 
   /* Set a node down and make sure it doesn't get used */
-  n2.nd_state = INUSE_DOWN;
+  n2.update_node_state(INUSE_DOWN);
 
-  n1.nd_name = strdup("n1");
-  n2.nd_name = strdup("n2");
-  n3.nd_name = strdup("n3");
-  n4.nd_name = strdup("n4");
+  n1.set_name("n1");
+  n2.set_name("n2");
+  n3.set_name("n3");
+  n4.set_name("n4");
 
   rtd = get_next_login_node(NULL);
   increment_counts(&n1, &n2, &n3, &n4, rtd, &n1_rtd, &n2_rtd, &n3_rtd, &n4_rtd);
+  rtd->unlock_node(__func__, NULL, 0);
   rtd = get_next_login_node(NULL);
   increment_counts(&n1, &n2, &n3, &n4, rtd, &n1_rtd, &n2_rtd, &n3_rtd, &n4_rtd);
+  rtd->unlock_node(__func__, NULL, 0);
   rtd = get_next_login_node(NULL);
   increment_counts(&n1, &n2, &n3, &n4, rtd, &n1_rtd, &n2_rtd, &n3_rtd, &n4_rtd);
+  rtd->unlock_node(__func__, NULL, 0);
   fail_unless(((n1_rtd == 3) && (n2_rtd == 2) && (n3_rtd == 3) && (n4_rtd == 3)),
     "Should have used n1,n2,n3,n4 3,2,3,3 times but found %d,%d,%d,%d",
     n1_rtd, n2_rtd, n3_rtd, n4_rtd);
@@ -170,12 +180,12 @@ START_TEST(check_node_test)
   struct pbsnode pnode;
   login_node ln(&pnode);
 
-  memset(&pnode, 0, sizeof(pnode));
-
-  pnode.nd_slots.add_execution_slot();
+  pnode.add_execution_slot();
   fail_unless(check_node(&ln, NULL) != NULL);
-  pnode.nd_slots.mark_as_used(0);
+  pnode.unlock_node(__func__, NULL, 0);
+  pnode.mark_slot_as_used(0);
   fail_unless(check_node(&ln, NULL) == NULL);
+  pnode.unlock_node(__func__, NULL, 0);
 
   }
 END_TEST
@@ -223,8 +233,10 @@ START_TEST(prop_test)
 
   rtd = get_next_login_node(props);
   increment_counts(&n1, &n2, &n3, &n4, rtd, &n1_rtd, &n2_rtd, &n3_rtd, &n4_rtd);
+  rtd->unlock_node(__func__, NULL, 0);
   rtd = get_next_login_node(props);
   increment_counts(&n1, &n2, &n3, &n4, rtd, &n1_rtd, &n2_rtd, &n3_rtd, &n4_rtd);
+  rtd->unlock_node(__func__, NULL, 0);
   snprintf(buf, sizeof(buf), "Should have used n1 once but is %d", n1_rtd);
   fail_unless(n1_rtd == 1, buf);
   snprintf(buf, sizeof(buf), "Should have used n2 once but is %d", n2_rtd);
@@ -236,8 +248,10 @@ START_TEST(prop_test)
 
   rtd = get_next_login_node(props);
   increment_counts(&n1, &n2, &n3, &n4, rtd, &n1_rtd, &n2_rtd, &n3_rtd, &n4_rtd);
+  rtd->unlock_node(__func__, NULL, 0);
   rtd = get_next_login_node(props);
   increment_counts(&n1, &n2, &n3, &n4, rtd, &n1_rtd, &n2_rtd, &n3_rtd, &n4_rtd);
+  rtd->unlock_node(__func__, NULL, 0);
   fail_unless(n1_rtd == 2, "Should have used n1 twice");
   fail_unless(n2_rtd == 2, "Should have used n2 twice");
   fail_unless(n3_rtd == 0, "Shouldn't have used n3");

@@ -156,7 +156,7 @@ struct pbsnode *create_alps_subnode(
   int             bad;
   int             rc = PBSE_NONE;
 
-  subnode = new pbsnode(node_id, NULL, false);
+  subnode = new pbsnode(node_id, NULL, true);
 
   if (strlen(subnode->get_error()) > 0)
     {

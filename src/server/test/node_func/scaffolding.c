@@ -111,7 +111,7 @@ struct pbsnode *AVL_find(u_long key, uint16_t port, AvlTree tree)
   else
     {
     sprintf(buf, "%lu", key);
-    numa.nd_name = buf;
+    numa.set_name(buf);
     return(&numa);
     }
   }
@@ -425,3 +425,55 @@ void free_br(struct batch_request *preq)
   return;
   }
 
+void log_ext(
+
+  int         errnum,   /* I (errno or PBSErrno) */
+  const char *routine,  /* I */
+  const char *text,     /* I */
+  int         severity) /* I */
+
+  {
+  }
+
+int decode_arst(
+
+  pbs_attribute *patr,    /* O (modified) */
+  const char   *name,    /* I pbs_attribute name (notused) */
+  const char *rescn,   /* I resource name (notused) */
+  const char    *val,     /* I pbs_attribute value */
+  int            perm) /* only used for resources */
+
+  {
+  return(0);
+  }
+
+job_usage_info &job_usage_info::operator=(job_usage_info const &)
+  {
+  return(*this);
+  }
+
+void populate_range_string_from_slot_tracker(
+
+  const execution_slot_tracker &est,
+  std::string                  &range_str)
+
+  {
+  }
+
+int node_gpustatus_list(
+
+  pbs_attribute *new_attr,      /* derive status into this pbs_attribute*/
+  void          *pnode,    /* pointer to a pbsnode struct     */
+  int            actmode)  /* action mode; "NEW" or "ALTER"   */
+
+  {
+  return(0);
+  }
+
+job *svr_find_job_by_id(
+
+  int jobid)
+
+  {
+  return(NULL);
+  }

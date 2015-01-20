@@ -9,6 +9,9 @@
 #include "u_tree.h"
 #include "threadpool.h"
 #include "resource.h"
+#include "id_map.hpp"
+#include "u_tree.h"
+#include "execution_slot_tracker.hpp"
 
 #define ATR_DFLAG_SSET  (ATR_DFLAG_SvWR | ATR_DFLAG_SvRD)
 #define rot(x,k) (((x)<<(k)) | ((x)>>(32-(k))))
@@ -34,6 +37,9 @@
   c ^= b; c -= rot(b,24); \
   }
 
+AvlTree                 ipaddrs = NULL;
+id_map node_mapper;
+id_map job_mapper;
 threadpool_t *task_pool;
 bool exit_called = false;
 char log_buffer[LOG_BUF_SIZE];
@@ -132,8 +138,7 @@ struct pbsnode *find_nodebyname(
 
   if (initialized == 0)
     {
-    memset(&pnode, 0, sizeof(struct pbsnode));
-    pnode.nd_name = strdup("george");
+    pnode.set_name("george");
     pnode.alps_subnodes = new all_nodes();
     }
 
@@ -1246,20 +1251,6 @@ attribute_def node_attr_def[] =
 
 
 
-int create_a_gpusubnode(
-
-  struct pbsnode *pnode)
-
-  {
-  /* increment the number of gpu subnodes and gpus free */
-  pnode->nd_ngpus++;
-  pnode->nd_ngpus_free++;
-
-  return(PBSE_NONE);
-  } /* END create_a_gpusubnode() */
-
-
-
 struct pbsnode *AVL_find(
 
   u_long   key,
@@ -1297,37 +1288,6 @@ int insert_node(
   {
   return(0);
   } /* END insert_node() */
-
-
-
-
-int initialize_pbsnode(
-
-  struct pbsnode *pnode,
-  char           *pname, /* node name */
-  u_long         *pul,  /* host byte order array */
-  /* ipaddrs for this node */
-  int             ntype, /* time-shared or cluster */
-  bool            isNUMANode) /* TRUE if this is a NUMA node. */
-
-  {
-  memset(pnode, 0, sizeof(struct pbsnode));
-
-  pnode->nd_mutex = (pthread_mutex_t *)calloc(1, sizeof(pthread_mutex_t));
-  if (pnode->nd_mutex == NULL)
-    {
-    log_err(ENOMEM, __func__, "Could not allocate memory for the node's mutex");
-
-    return(ENOMEM);
-    }
-
-  pthread_mutex_init(pnode->nd_mutex,NULL);
-
-  pnode->nd_name = pname;
-
-  return(PBSE_NONE);
-  }  /* END initialize_pbsnode() */
-
 
 
 
@@ -1702,31 +1662,10 @@ struct pbsnode *find_node_in_allnodes(all_nodes *an, char *nodename)
   return(NULL);
   }
 
-void delete_a_subnode(
-
-  struct pbsnode *pnode)
-
-  {
-  }
-
 int remove_alps_reservation(char *rsv_id)
   {
   return(0);
   }
-
-int add_execution_slot(
-
-  struct pbsnode *pnode)
-
-  {
-  if(pnode == NULL) return(PBSE_RMBADPARAM);
-  pnode->nd_slots.add_execution_slot();
-
-  if ((pnode->nd_state & INUSE_JOB) != 0)
-    pnode->nd_state &= ~INUSE_JOB;
-
-  return(PBSE_NONE);
-  } 
 
 int get_svr_attr_l(int index, long *l)
   {
@@ -1798,3 +1737,91 @@ int svr_resc_size = sizeof(svr_resc_def_const)/sizeof(resource_def);
 
 resource_def *svr_resc_def = svr_resc_def_const;
 
+int pbs_getaddrinfo(
+    
+  const char       *pNode,
+  struct addrinfo  *pHints,
+  struct addrinfo **ppAddrInfoOut)
+  
+  {
+  return(0);
+  }
+
+int remove_node(
+
+  all_nodes      *an,
+  struct pbsnode *pnode)
+  
+  {
+  return(0);
+  }
+
+id_map::id_map() {}
+id_map::~id_map() {}
+
+const char *id_map::get_name(int id)
+  {
+  return(NULL);
+  }
+
+int id_map::get_new_id(const char *name)
+
+  {
+  return(0);
+  }
+
+struct prop *init_prop(
+
+  const char *pname) /* I */
+
+  {
+  return(NULL);
+  }
+
+bool node_exists(const char *name)
+  {
+  return(true);
+  }
+
+void log_ext(
+
+  int         errnum,   /* I (errno or PBSErrno) */
+  const char *routine,  /* I */
+  const char *text,     /* I */
+  int         severity) /* I */
+
+  {
+  }
+
+void populate_range_string_from_slot_tracker(
+
+  const execution_slot_tracker &est,
+  std::string                  &range_str)
+
+  {
+  }
+
+AvlTree AVL_delete_node( 
+
+  u_long   key, 
+  uint16_t port, 
+  AvlTree  tree)
+
+  {
+  return(NULL);
+  }
+
+AvlTree AVL_insert( u_long key, uint16_t port, struct pbsnode *node, AvlTree tree )
+
+  {
+  return(NULL);
+  }
+
+int read_val_and_advance(
+
+  int   *val,
+  char **str)
+
+  {
+  return(0);
+  }
