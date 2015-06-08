@@ -277,18 +277,29 @@ struct pbsnode *tfind_addr(
  * List format is similiar to: gpuati+gpu/1+gpunvidia/4+gpu/5
  */
 
-int node_in_exechostlist(
+bool node_in_exechostlist(
     
   const char *node_name,
-  char       *node_ehl)
+  char       *node_ehl,
+  const char *login_node_name)
 
   {
-  int         rc = FALSE;
+  bool  found = false;
   const char *cur_pos = node_ehl;
   const char *new_pos = cur_pos;
-  int         name_len = strlen(node_name);
+  int   name_len = strlen(node_name);
+  long  cray_enabled = FALSE;
 
-  while (1)
+  get_svr_attr_l(SRV_ATR_CrayEnabled, &cray_enabled);
+
+  if (cray_enabled == TRUE)
+    {
+    if ((login_node_name != NULL) &&
+        (!strcmp(login_node_name, node_name)))
+      found = true;
+    }
+
+  while (found == false)
     {
     if ((new_pos = strstr(cur_pos, node_name)) == NULL)
       break;
@@ -298,7 +309,7 @@ int node_in_exechostlist(
           (*(new_pos+name_len) == '+') ||
           (*(new_pos+name_len) == '/'))
         {
-        rc = TRUE;
+        found = true;
         break;
         }
       }
@@ -308,7 +319,7 @@ int node_in_exechostlist(
           (*(new_pos+name_len) == '+') ||
           (*(new_pos+name_len) == '/'))
         {
-        rc = TRUE;
+        found = true;
         break;
         }
       }
@@ -316,7 +327,7 @@ int node_in_exechostlist(
     cur_pos = new_pos+1;
     }
 
-  return(rc);
+  return(found);
   } /* END node_in_exechostlist() */
 
 
@@ -436,7 +447,8 @@ bool job_already_being_killed(
  */
 
 bool job_should_be_killed(
-    
+
+  std::string    &job_id,    
   int             internal_job_id,
   struct pbsnode *pnode)
 
@@ -448,9 +460,10 @@ bool job_should_be_killed(
   if ((pnode->is_job_on_node(internal_job_id)) == false)
     {
     /* must lock the job before the node */
-    pnode->unlock_node(__func__, NULL, LOGLEVEL);
-    pjob = svr_find_job_by_id(internal_job_id);
-    pnode->lock_node(__func__, NULL, LOGLEVEL);
+    tmp_unlock_node(pnode, __func__, NULL, LOGLEVEL);
+    if ((pjob = svr_find_job_by_id(internal_job_id)) == NULL)
+      pjob = svr_find_job(job_id.c_str(), TRUE);
+    tmp_lock_node(pnode, __func__, NULL, LOGLEVEL);
     
     if (pjob != NULL)
       {
@@ -463,7 +476,9 @@ bool job_should_be_killed(
         {
         should_be_on_node = false;
         }
-      else if (node_in_exechostlist(pnode->get_name(), pjob->ji_wattr[JOB_ATR_exec_host].at_val.at_str) == FALSE)
+      else if (node_in_exechostlist(pnode->get_name(),
+               pjob->ji_wattr[JOB_ATR_exec_host].at_val.at_str,
+               pjob->ji_wattr[JOB_ATR_login_node_id].at_val.at_str) == false)
         {
         should_be_on_node = false;
         }
@@ -479,6 +494,7 @@ bool job_should_be_killed(
 
   return(should_kill_job);
   } /* END job_should_be_killed() */
+
 
 
 void *finish_job(
@@ -771,7 +787,7 @@ void *sync_node_jobs(
         log_ext(-1, __func__, log_buf, LOG_WARNING);
         }
       }
-    if (job_should_be_killed(internal_job_id, np))
+    if (job_should_be_killed(job_id, internal_job_id, np))
       {
       if (kill_job_on_mom(job_id.c_str(), np) == PBSE_NONE)
         {
@@ -1024,13 +1040,13 @@ void *write_node_state_work(
   void *vp)
 
   {
-  struct pbsnode *np;
+  struct pbsnode *np = NULL;
   static char    *fmt = (char *)"%s %d\n";
   static FILE    *nstatef = NULL;
-  all_nodes_iterator *iter = NULL;
-
+  long            cray_enabled = FALSE;
   int             savemask;
 
+  get_svr_attr_l(SRV_ATR_CrayEnabled, &cray_enabled);
   pthread_mutex_lock(node_state_mutex);
 
   if (LOGLEVEL >= 5)
@@ -1073,19 +1089,38 @@ void *write_node_state_work(
   ** The only state that carries forward is if the
   ** node has been marked offline.
   */
-
-  while ((np = next_host(&allnodes,&iter,NULL)) != NULL)
+  if (cray_enabled == TRUE)
     {
-    if (np->get_node_state() & INUSE_OFFLINE)
+    node_iterator   iter;
+    reinitialize_node_iterator(&iter);
+
+    while ((np = next_node(&allnodes, np, &iter)) != NULL)
       {
-      fprintf(nstatef, fmt, np->get_name(), np->get_node_state() & savemask);
-      }
+      if (np->get_node_state() & INUSE_OFFLINE)
+        {
+        fprintf(nstatef, fmt, np->get_name(), np->get_node_state() & savemask);
+        }
 
-    np->unlock_node(__func__, NULL, LOGLEVEL);
-    } /* END for each node */
+      np->unlock_node(__func__, NULL, LOGLEVEL);
+      } /* END for each node */
+    }
+  else
+    {
+    all_nodes_iterator *iter = NULL;
 
-  if (iter != NULL)
-    delete iter;
+    while ((np = next_host(&allnodes,&iter,NULL)) != NULL)
+      {
+      if (np->get_node_state() & INUSE_OFFLINE)
+        {
+        fprintf(nstatef, fmt, np->get_name(), np->nd_state & savemask);
+        }
+
+      np->unlock_node(__func__, NULL, LOGLEVEL);
+      } /* END for each node */
+
+    if (iter != NULL)
+      delete iter;
+    }
 
   if (fflush(nstatef) != 0)
     {
@@ -3013,7 +3048,7 @@ int reserve_node(
     /* failure */
     return(-1);
     }
-    
+  
   job_usage_info jui(pjob->ji_internal_id);
     
   jui.est = node_info->est;

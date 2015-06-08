@@ -277,12 +277,13 @@ typedef struct nodeboard_t
 #define SEND_HELLO 11
 
 /* container for holding communication information */
-typedef struct received_node
+class received_node
   {
-  char            hostname[PBS_MAXNODENAME];
+  public:
+  std::string              hostname;
   std::vector<std::string> statuses;
   int                      hellos_sent;
-  } received_node;
+  };
 
 typedef struct job job;
 
@@ -401,6 +402,8 @@ public:
   pbsnode    *get_parent();
 
   int         setup_node_boards();
+  int         lock_node(const char *caller, const char *msg, int level);
+  int         unlock_node(const char *caller, const char *msg, int level);
   void        set_node_id(int id);
   void        set_real_gpus();
   void        delete_a_gpusubnode();
@@ -411,8 +414,6 @@ public:
   void        set_node_down_if_inactive(time_t time_now, long check_len);
   void        clear_nvidia_gpus();
   int         login_encode_jobs(tlist_head     *phead);
-  int         lock_node(const char *caller, const char *msg, int level);
-  int         unlock_node(const char *caller, const char *msg, int level);
   void        abort_request(node_job_add_info *naji);
   int         add_job_to_mic(int index, job *pjob);
   int         add_execution_slot();
@@ -446,6 +447,9 @@ public:
   ~pbsnode();
   pbsnode(const pbsnode &other);
   };
+  
+int         tmp_lock_node(pbsnode *, const char *caller, const char *msg, int level);
+int         tmp_unlock_node(pbsnode *, const char *caller, const char *msg, int level);
 
 typedef container::item_container<struct pbsnode *>                all_nodes;
 typedef container::item_container<struct pbsnode *>::item_iterator all_nodes_iterator;

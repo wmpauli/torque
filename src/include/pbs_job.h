@@ -470,6 +470,10 @@ typedef std::set<pid_t> job_pid_set_t;
 #endif /* MOM */
 
 
+#define COUNTED_GLOBALLY 0x0001
+#define COUNTED_IN_QUEUE 0x0010
+
+
 typedef struct
   {
   char      jobid[PBS_MAXSVRJOBID+1];
@@ -680,6 +684,10 @@ struct job
   char              ji_being_recycled;
   time_t            ji_last_reported_time;
   time_t            ji_mod_time;       // the timestamp of when the state last changed
+  // This is used as a bitmap to ensure that a job is only counted once as a queued job for 
+  // the queue count and the server count
+  unsigned          ji_queue_counted;
+  bool              ji_being_deleted;
 #endif/* PBS_MOM */   /* END SERVER ONLY */
   int               ji_commit_done;   /* req_commit has completed. If in routing queue job can now be routed */
 
@@ -733,7 +741,7 @@ int  insert_job_after(all_jobs *,job *before,job *after);
 int  insert_job_after(all_jobs *, char *after_id, job *after);
 int  insert_job_first(all_jobs *,job *);
 int  get_jobs_index(all_jobs *, job *);
-int  remove_job(all_jobs *,job *);
+int  remove_job(all_jobs *, job *, bool force_lock=false);
 int  has_job(all_jobs *,job *);
 int  swap_jobs(all_jobs *,job *,job *);
 struct pbs_queue *get_jobs_queue(job **);
@@ -755,6 +763,7 @@ void  update_recycler_next_id();
 void  initialize_recycler();
 void  garbage_collect_recycling();
 void *remove_extra_recycle_jobs(void *);
+void *remove_completed_jobs(void *);
 
 #endif
 
@@ -877,7 +886,8 @@ typedef struct job_file_delete_info
 #define TI_STATE_EMBRYO  0
 #define TI_STATE_RUNNING 1    /* includes suspended jobs */
 #define TI_STATE_EXITED  2  /* ti_exitstat valid */
-#define TI_STATE_DEAD    3
+#define TI_STATE_DEAD    3 
+#define TI_STATE_SIGTERM 4
 
 
 /*
@@ -1114,7 +1124,7 @@ job         *find_job_by_array(all_jobs *aj, const char *job_id, int get_subjob,
 #else
 extern job  *mom_find_job(const char *);
 #endif
-extern job  *job_recov(char *);
+extern job  *job_recov(const char *);
 extern int   job_save(job *, int, int);
 extern int   modify_job_attr(job *, svrattrl *, int, int *);
 extern const char *prefix_std_file(job *, std::string& , int);
@@ -1123,7 +1133,7 @@ extern int   set_jobexid(job *, pbs_attribute *, char *);
 extern int   site_check_user_map(job *, char *, char *, int);
 int  svr_dequejob(job *, int);
 int initialize_ruserok_mutex();
-extern int   svr_enquejob(job *, int, char *, bool);
+extern int   svr_enquejob(job *, int, const char *, bool);
 void         svr_evaljobstate(job &, int &, int &, int);
 extern void  svr_mailowner(job *, int, int, const char *);
 extern void  svr_mailowner_with_message(job *, int, int, const char *, const char *);

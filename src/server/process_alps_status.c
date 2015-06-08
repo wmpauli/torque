@@ -206,7 +206,6 @@ struct pbsnode *create_alps_subnode(
 
 
 
-
 void *check_if_orphaned(
 
   void *vp)
