@@ -46,6 +46,8 @@ void close_conn(int sd, int has_mutex) {}
 id_map job_mapper;
 bool exit_called = false;
 
+all_nodes               allnodes;
+
 char *threadsafe_tokenizer(
 
   char **str,    /* M */
@@ -293,4 +295,87 @@ void write_node_power_state(void)
 id_map::id_map(){}
 
 id_map::~id_map(){}
+int id_map::get_new_id(const char *name)
+  {
+  return(0);
+  }
+const char *id_map::get_name(int id)
+  {
+  return(NULL);
+  }
 
+int pbs_getaddrinfo(
+    
+  const char       *pNode,
+  struct addrinfo  *pHints,
+  struct addrinfo **ppAddrInfoOut)
+
+  {
+  return(0);
+  }
+
+int remove_node(
+
+  all_nodes      *an,
+  struct pbsnode *pnode)
+
+  {
+  return(0);
+  }
+
+id_map                          node_mapper;
+
+void populate_range_string_from_slot_tracker(
+
+  const execution_slot_tracker &est,
+  std::string                  &range_str) {}
+
+struct prop *init_prop(
+
+  const char *pname) /* I */
+
+  {
+  return(NULL);
+  }
+
+void free_prop_list(prop *pl) {}
+
+AvlTree AVL_delete_node(
+  u_long   key,
+  uint16_t port,
+  AvlTree  tree)
+
+  {
+  return(NULL);
+  }
+
+AvlTree AVL_insert( u_long key, uint16_t port, struct pbsnode *node, AvlTree tree )
+
+  {
+  return(NULL);
+  }
+
+AvlTree                 ipaddrs = NULL;
+
+job *svr_find_job_by_id(int id)
+  {
+  return(NULL);
+  }
+
+int read_val_and_advance(
+
+  int   *val,
+  char **str)
+
+  {
+  return(0);
+  }
+
+int copy_properties(
+
+  struct pbsnode *dest, /* I */
+  struct pbsnode *src)  /* O */
+
+  {
+  return(0);
+  }

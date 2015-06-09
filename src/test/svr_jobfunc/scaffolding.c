@@ -451,3 +451,15 @@ char *csv_nth(const char *csv_str, int n)
   exit(1);
   }
 
+pbsnode::pbsnode() {}
+pbsnode::~pbsnode() {}
+
+int pbsnode::lock_node(const char *a, const char *b, int c)
+  {
+  return(0);
+  }
+
+int pbsnode::unlock_node(const char *a, const char *b, int c)
+  {
+  return(0);
+  }

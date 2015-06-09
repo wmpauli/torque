@@ -43,57 +43,6 @@ extern int str_to_attr_count;
 extern int decode_resc_count;
 
 
-START_TEST(test_add_remove_mic_jobs)
-  {
-  struct pbsnode      pnode;
-  job                *pjobs = (job *)calloc(3, sizeof(job));
-  
-  memset(&pnode, 0, sizeof(pnode));
-  pnode.nd_micjobs = (struct jobinfo *)calloc(5, sizeof(struct jobinfo));
-  pnode.nd_nmics = 5;
-  pnode.nd_nmics_free = 5;
-  pnode.nd_nmics_to_be_used = 3;
-
-  for (short i = 0; i < pnode.nd_nmics; i++)
-    pnode.nd_micjobs[i].internal_job_id = -1;
-
-  pjobs[0].ji_internal_id = 0;
-  pjobs[1].ji_internal_id = 1;
-  pjobs[2].ji_internal_id = 2;
-
-  fail_unless(add_job_to_mic(&pnode, 0, pjobs + 0) == PBSE_NONE);
-  fail_unless(pnode.nd_nmics_free == 4);
-  fail_unless(pnode.nd_nmics_to_be_used == 2);
-  
-  fail_unless(add_job_to_mic(&pnode, 1, pjobs + 1) == PBSE_NONE);
-  fail_unless(pnode.nd_nmics_free == 3);
-  fail_unless(pnode.nd_nmics_to_be_used == 1);
-  
-  fail_unless(add_job_to_mic(&pnode, 2, pjobs + 2) == PBSE_NONE);
-  fail_unless(pnode.nd_nmics_free == 2);
-  fail_unless(pnode.nd_nmics_to_be_used == 0);
- 
-  // make sure an add to the same mic fails
-  fail_unless(add_job_to_mic(&pnode, 2, pjobs + 2) != PBSE_NONE);
-  fail_unless(pnode.nd_nmics_free == 2);
-  fail_unless(pnode.nd_nmics_to_be_used == 0);
-
-  remove_job_from_nodes_mics(&pnode, pjobs + 0);
-  fail_unless(pnode.nd_nmics_free == 3);
-
-  // make sure a repeat doesn't change things
-  remove_job_from_nodes_mics(&pnode, pjobs + 0);
-  fail_unless(pnode.nd_nmics_free == 3);
-
-  remove_job_from_nodes_mics(&pnode, pjobs + 1);
-  fail_unless(pnode.nd_nmics_free == 4);
-
-  remove_job_from_nodes_mics(&pnode, pjobs + 2);
-  fail_unless(pnode.nd_nmics_free == 5);
-  }
-END_TEST
-
-
 START_TEST(test_initialize_alps_req_data)
   {
   alps_req_data      *ard;
@@ -105,32 +54,30 @@ START_TEST(test_initialize_alps_req_data)
 
   memset(&req, 0, sizeof(req));
   memset(&csd, 0, sizeof(csd));
-  memset(&pnode, 0, sizeof(pnode));
 
   fail_unless(initialize_alps_req_data(&ard, 3) == PBSE_NONE);
 
-  pnode.nd_id = 0;
-  pnode.nd_name = strdup("napali");
-  req.req_id = 0;
+  pnode.set_name("napali");
+  pnode.set_node_id(0);
   req.ppn = 32;
 
   record_fitting_node(num, &pnode, naji, &req, 0, 0, 3, JOB_TYPE_cray, &csd, &ard);
 
-  pnode.nd_id = 1;
-  pnode.nd_name = strdup("waimea");
+  pnode.set_name("waimea");
+  pnode.set_node_id(1);
   req.req_id = 1;
   req.ppn = 1;
   
   record_fitting_node(num, &pnode, naji, &req, 0, 1, 3, JOB_TYPE_cray, &csd, &ard);
 
-  pnode.nd_id = 4;
-  pnode.nd_name = strdup("wailua");
+  pnode.set_name("wailua");
+  pnode.set_node_id(4);
   req.ppn = 2;
   
   record_fitting_node(num, &pnode, naji, &req, 0, 2, 3, JOB_TYPE_cray, &csd, &ard);
 
-  pnode.nd_id = 2;
-  pnode.nd_name = strdup("lihue");
+  pnode.set_name("lihue");
+  pnode.set_node_id(2);
   req.req_id = 2;
   req.ppn = 12;
   
@@ -572,14 +519,14 @@ START_TEST(place_subnodes_in_hostlist_job_exclusive_test)
   memset(&pjob, 0, sizeof(job));
   strcpy(pjob.ji_qs.ji_jobid, "1.lei");
 
-  struct pbsnode *pnode = (struct pbsnode *)calloc(1, sizeof(struct pbsnode));
+  struct pbsnode *pnode = new pbsnode();
   for (int i = 0; i < 9; i++)
-    pnode->nd_slots.add_execution_slot();
+    pnode->add_execution_slot();
 
   job_usage_info *jui = (job_usage_info *)calloc(1, sizeof(job_usage_info));
   jui->internal_job_id = 1;
 
-  pnode->nd_slots.reserve_execution_slots(1, jui->est);
+  pnode->reserve_execution_slots(1, jui->est);
   pnode->nd_job_usages.push_back(*jui);
 
   fail_unless(pnode->nd_state == 0, "Node state has garbage");
@@ -653,7 +600,6 @@ Suite *node_manager_suite(void)
 
   tc_core = tcase_create("place_subnodes_in_hostlist_job_exclusive_test");
   tcase_add_test(tc_core, place_subnodes_in_hostlist_job_exclusive_test);
-  tcase_add_test(tc_core, test_add_remove_mic_jobs);
   suite_add_tcase(s, tc_core);
 
   tc_core = tcase_create("record_external_node_test");

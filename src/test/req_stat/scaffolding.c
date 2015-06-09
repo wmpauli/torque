@@ -344,3 +344,45 @@ void log_record(int eventtype, int objclass, const char *objname, const char *te
 void log_event(int eventtype, int objclass, const char *objname, const char *text) {}
 
 int svr_unresolvednodes = 0;
+
+pbsnode::pbsnode() {}
+pbsnode::~pbsnode() {}
+
+const char *pbsnode::get_name() const
+  {
+  return("napali");
+  }
+
+bool pbsnode::has_prop(prop *p) const
+  {
+  return(true);
+  }
+
+int pbsnode::unlock_node(const char *s, const char *r, int t)
+  {
+  return(0);
+  }
+
+int pbsnode::lock_node(const char *s, const char *r, int t)
+  {
+  return(0);
+  }
+
+short pbsnode::get_service_port() const
+  {
+  return(0);
+  }
+
+int pbsnode::status_nodeattrib(
+
+  svrattrl        *pal,
+  attribute_def   *padef,
+  int              limit,
+  int              priv,
+  tlist_head      *phead,
+  int             *bad)
+
+  {
+  return(0);
+  }
+

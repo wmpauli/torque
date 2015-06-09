@@ -93,33 +93,6 @@ void close_conn(int sd, int has_mutex)
 
 void DIS_tcp_cleanup(struct tcp_chan *chan) {}
 
-int lock_node(
-    
-  struct pbsnode *the_node,
-  const char     *id,
-  const char     *msg,
-  int             logging)
-
-  {
-  return(0);
-  }
-
-int unlock_node(
-    
-  struct pbsnode *the_node,
-  const char     *id,
-  const char     *msg,
-  int             logging)
-
-  {
-  node_unlocked++;
-
-  if (free_node_on_unlock)
-    free(the_node);
-
-  return(0);
-  }
-
 void log_err(int errnum, const char *routine, const char *text) {}
 void log_record(int eventtype, int objclass, const char *objname, const char *text) {}
 void log_event(int eventtype, int objclass, const char *objname, const char *text) {}
@@ -134,4 +107,18 @@ struct pbsnode *find_nodebyname(const char *node_name)
   {
   find_node_called++;
   return(NULL);
+  }
+
+pbsnode::pbsnode() {}
+pbsnode::~pbsnode() {}
+
+const char *pbsnode::get_name() const
+  {
+  return("napali");
+  }
+
+int pbsnode::unlock_node(const char *a, const char *b, int c)
+  {
+  node_unlocked++;
+  return(0);
   }

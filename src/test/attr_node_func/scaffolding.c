@@ -7,6 +7,10 @@
 #include "execution_slot_tracker.hpp"
 #include "attribute.h" /* svrattrl */
 #include "id_map.hpp"
+#include "pbs_nodes.h"
+
+pbsnode::pbsnode() {}
+pbsnode::~pbsnode() {}
 
 id_map    job_mapper;
 
